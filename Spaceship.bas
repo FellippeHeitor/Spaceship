@@ -1,8 +1,97 @@
+'Spaceship, by @FellippeHeitor (2016)
+'--------------------------------------------------------------------------
+$RESIZE:SMOOTH
+'_FULLSCREEN
+
+DECLARE LIBRARY
+    FUNCTION GetUptime ALIAS GetTicks
+END DECLARE
+
 $EXEICON:'ship.ico'
 _ICON
 _SCREENMOVE _MIDDLE
 _TITLE "Spaceship"
 DEFLNG A-Z
+
+' declare constants and types
+CONST MaxStars = 15
+CONST max_beams = 10
+
+CONST ScreenMap.Bonus = 1
+CONST ScreenMap.Enemy = 2
+
+TYPE ObjectsTYPE
+    X AS SINGLE
+    Y AS INTEGER
+    Width AS INTEGER
+    Height AS INTEGER
+    Color AS INTEGER
+    Shape AS STRING * 256
+    Points AS INTEGER
+    Hits AS INTEGER
+    RelativeSpeed AS INTEGER
+    Char AS STRING * 1
+    Size AS INTEGER
+    StartTime AS DOUBLE
+    MovePattern AS STRING * 256
+    MoveSteps AS INTEGER
+    CanReverse AS _BYTE
+    Chase AS _BYTE
+    CurrentMoveStep AS INTEGER
+END TYPE
+
+'Variable declaration
+DIM i, StartTime#, x, Found AS _BYTE, a$, TotalControllers AS INTEGER
+DIM ReturnedButton$, SavedDevice%, Dummy, Path$
+DIM SHARED GetButton.NotFound AS _BYTE, GetButton.Found AS _BYTE, GetButton.Multiple AS _BYTE
+
+DIM x AS INTEGER, y AS INTEGER
+DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS _BYTE
+DIM Collision AS _BYTE
+DIM row AS SINGLE, RoundRow AS INTEGER
+DIM StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
+DIM ShieldImages(1 TO 10) AS LONG
+DIM SmokeImages(1 TO 3) AS LONG
+DIM ShieldInitiated#, LastShieldImage AS INTEGER
+DIM x(1 TO 8) AS INTEGER, y(1 TO 8) AS INTEGER
+DIM SHARED MaxEnemies AS INTEGER
+DIM SHARED Starfield(MaxStars) AS ObjectsTYPE
+DIM SHARED Enemies(200) AS ObjectsTYPE
+DIM SHARED Beams(max_beams) AS ObjectsTYPE
+DIM SHARED Level, Energy AS SINGLE
+DIM ShieldCanvas, c, Boom$, ShipChar$
+DIM CarefulMessage#, EnergyWarning#
+DIM Points, Lives AS INTEGER, EnergyBars AS INTEGER
+DIM SHARED Recharge AS _BYTE, Alive AS _BYTE, ShipSize AS _BYTE
+DIM SHARED PrevLevelMaxEnemies AS INTEGER
+DIM UpperLimit AS INTEGER, LowerLimit AS INTEGER, LeftLimit AS INTEGER
+DIM ShipColor AS INTEGER, k$, Pause AS _BYTE
+DIM Shield AS _BYTE, LastRecharge#, LastPause#
+DIM Stars AS _BYTE, id AS INTEGER, RechargeTime#
+DIM move_stars_Last#, move_enemies_Last#
+DIM LastEngineEnergy#, prevX AS INTEGER, prevY AS INTEGER
+DIM Smoke AS _BYTE, Char$, ShotsFired AS _BYTE
+DIM LaserAnimationStep AS _BYTE, Laser.X AS INTEGER
+DIM Laser.Y AS INTEGER, j AS INTEGER, drawIt AS INTEGER
+DIM Visible AS _BYTE, CheckEnemy AS INTEGER, Boom.X AS INTEGER
+DIM Boom.Y AS INTEGER, EnemyExplosion AS _BYTE
+DIM ExplosionAnimationStep AS _BYTE, l AS INTEGER
+DIM L1 AS _BYTE, L2 AS _BYTE, L3 AS _BYTE
+DIM NewBeam AS INTEGER, LastBeam#, EnergyStat$
+DIM EnergyWarningText AS _BYTE
+DIM SHARED Mute AS _BYTE
+DIM SHARED UseKeyboard AS _BYTE
+
+DIM SHARED Bonus.Active AS _BYTE, Bonus.Color AS INTEGER
+DIM SHARED Bonus.X AS INTEGER, Bonus.Y AS INTEGER, Bonus.Shape$
+DIM SHARED Bonus.Speed#
+DIM SHARED Bonus.Width AS INTEGER, Bonus.Height AS INTEGER
+DIM SHARED Bonus.Type$
+
+DIM ShieldColorIndex AS INTEGER, LastShieldColor#
+DIM x.offset!, Damage AS _BYTE, DeathMessage$
+DIM PauseMessage$, bx AS INTEGER, by AS INTEGER
+DIM brow!
 
 'Animation uses ASCII character 7, which normally beeps when printed to the screen.
 'Let's turn this behavior off:
@@ -15,7 +104,7 @@ TYPE DevType
 END TYPE
 
 TYPE ButtonMapType
-    ID AS INTEGER
+    ID AS LONG
     Name AS STRING * 10
 END TYPE
 
@@ -23,21 +112,19 @@ REDIM SHARED MyDevices(0) AS DevType
 DIM SHARED ChosenController
 
 'Initialize ButtonMap for the assignment routine
-DIM SHARED ButtonMap(1 TO 9) AS ButtonMapType
+DIM SHARED ButtonMap(1 TO 6) AS ButtonMapType
 i = 1
 ButtonMap(i).Name = "START": i = i + 1
 ButtonMap(i).Name = "UP": i = i + 1
 ButtonMap(i).Name = "DOWN": i = i + 1
 ButtonMap(i).Name = "LEFT": i = i + 1
 ButtonMap(i).Name = "RIGHT": i = i + 1
-ButtonMap(i).Name = "PINK": i = i + 1
-ButtonMap(i).Name = "BLUE": i = i + 1
-ButtonMap(i).Name = "GREEN": i = i + 1
-ButtonMap(i).Name = "RED": i = i + 1
+ButtonMap(i).Name = "FIRE": i = i + 1
 
 'Detection routine:
 PRINT "Detecting your controller. Press any button..."
-StartTime# = TIMER
+PRINT "(If you don't have a controller, press any key on your keyboard)"
+StartTime# = GetTICKS
 DO
     x& = _DEVICEINPUT
     IF x& = 1 OR x& > 2 THEN
@@ -45,67 +132,100 @@ DO
         Found = -1
         EXIT DO
     END IF
-    IF _KEYHIT = 27 THEN EXIT DO
-LOOP UNTIL TIMER - StartTime# > 10
+    k = _KEYHIT
+    IF k = 27 THEN EXIT DO
+    IF k <> 0 THEN UseKeyboard = -1: Found = -1: EXIT DO
+LOOP UNTIL GetTICKS - StartTime# > 10
 
 IF Found = 0 THEN
     PRINT "No controller detected."
     END
 END IF
 
-FOR i = 1 TO _DEVICES
-    a$ = _DEVICE$(i)
-    IF INSTR(a$, "CONTROLLER") > 0 OR INSTR(a$, "KEYBOARD") > 0 THEN
-        TotalControllers = TotalControllers + 1
-        REDIM _PRESERVE SHARED MyDevices(1 TO TotalControllers) AS DevType
-        MyDevices(TotalControllers).ID = i
-        MyDevices(TotalControllers).Name = a$
-    END IF
-NEXT i
-
-IF TotalControllers > 1 THEN
-    'More than one controller found, user can choose which will be used
-    '(though I highly suspect this bit will never be run)
-    PRINT "Controllers found:"
-    FOR i = 1 TO TotalControllers
-        PRINT i, MyDevices(i).Name
+IF UseKeyboard = 0 THEN
+    FOR i = 1 TO _DEVICES
+        a$ = _DEVICE$(i)
+        IF INSTR(a$, "CONTROLLER") > 0 OR INSTR(a$, "KEYBOARD") > 0 THEN
+            TotalControllers = TotalControllers + 1
+            REDIM _PRESERVE SHARED MyDevices(1 TO TotalControllers) AS DevType
+            MyDevices(TotalControllers).ID = i
+            MyDevices(TotalControllers).Name = a$
+        END IF
     NEXT i
-    DO
-        INPUT "Your choice (0 to quit): ", ChosenController
-        IF ChosenController = 0 THEN END
-    LOOP UNTIL ChosenController <= TotalControllers
+
+    IF TotalControllers > 1 THEN
+        'More than one controller found, user can choose which will be used
+        '(though I highly suspect this bit will never be run)
+        PRINT "Controllers found:"
+        FOR i = 1 TO TotalControllers
+            PRINT i, MyDevices(i).Name
+        NEXT i
+        DO
+            INPUT "Your choice (0 to quit): ", ChosenController
+            IF ChosenController = 0 THEN END
+        LOOP UNTIL ChosenController <= TotalControllers
+    ELSE
+        ChosenController = 1
+    END IF
 ELSE
+    TotalControllers = TotalControllers + 1
+    REDIM _PRESERVE SHARED MyDevices(1 TO TotalControllers) AS DevType
+    MyDevices(TotalControllers).ID = 1
+    MyDevices(TotalControllers).Name = "KEYBOARD"
     ChosenController = 1
 END IF
+
+IF ChosenController = 1 AND INSTR(_OS$, "WIN") = 0 THEN UseKeyboard = -1
+
 AssignKeys:
 CLS
-PRINT "Using "; RTRIM$(MyDevices(ChosenController).Name)
+IF NOT UseKeyboard THEN
+    PRINT "Using "; RTRIM$(MyDevices(ChosenController).Name)
+    PRINT "Button assignments:"
+ELSE
+    PRINT "Using KEYBOARD"
+    PRINT "Key assignments:"
+END IF
 PRINT
-PRINT "Button assignments:"
 IF _FILEEXISTS("controller.dat") = 0 THEN
     i = 0
 
-    'Wait until all buttons in the deviced are released:
-    DO
-    LOOP UNTIL GetButton("", MyDevices(ChosenController).ID) = GetButton.NotFound
+    IF UseKeyboard THEN
+        _KEYCLEAR
+    ELSE
+        'Wait until all buttons in the deviced are released:
+        DO
+        LOOP UNTIL GetButton("", MyDevices(ChosenController).ID) = GetButton.NotFound
+    END IF
 
     'Start assignment
     DO
         i = i + 1
         IF i > UBOUND(ButtonMap) THEN EXIT DO
         Redo:
-        PRINT "PRESS BUTTON FOR '" + RTRIM$(ButtonMap(i).Name) + "'...";
+        IF NOT UseKeyboard THEN
+            PRINT "PRESS BUTTON FOR '" + RTRIM$(ButtonMap(i).Name) + "'...";
 
-        'Read a button
-        ReturnedButton$ = ""
-        DO
-        LOOP UNTIL GetButton(ReturnedButton$, 0) = GetButton.Found
+            'Read a button
+            ReturnedButton$ = ""
+            DO
+            LOOP UNTIL GetButton(ReturnedButton$, 0) = GetButton.Found
 
-        'Wait until all buttons in the deviced are released:
-        DO
-        LOOP UNTIL GetButton("", 0) = GetButton.NotFound
+            'Wait until all buttons in the deviced are released:
+            DO
+            LOOP UNTIL GetButton("", 0) = GetButton.NotFound
 
-        ButtonMap(i).ID = CVI(ReturnedButton$)
+            ButtonMap(i).ID = CVI(ReturnedButton$)
+        ELSE
+            PRINT "PRESS A KEY FOR '" + RTRIM$(ButtonMap(i).Name) + "'...";
+
+            'Read a key
+            k = 0
+            DO WHILE k <= 0: k = _KEYHIT: LOOP
+            _KEYCLEAR
+            ReturnedButton$ = MKL$(k)
+            ButtonMap(i).ID = CVL(ReturnedButton$)
+        END IF
         PRINT
     LOOP
     OPEN "controller.dat" FOR BINARY AS #1
@@ -127,7 +247,7 @@ ELSE
         PRINT ButtonMap(i).Name; "="; ButtonMap(i).ID
     NEXT
 END IF
-
+GOTO DemoStart
 PRINT
 PRINT "Push START..."
 PRINT "(DELETE to reassign keys)"
@@ -141,282 +261,794 @@ DO
 LOOP UNTIL GetButton("START", MyDevices(ChosenController).ID)
 
 'Demo goes here: -----------------------------------------------------------------------------------
+DemoStart:
+Dummy = GetButton("", MyDevices(ChosenController).ID)
 RANDOMIZE TIMER
-' declare constants
-CONST true = 1
-CONST false = 0
 
-TYPE StarField_TYPE
-    Position_X AS SINGLE
-    Position_Y AS INTEGER
-    Color AS INTEGER
-    RelativeSpeed AS INTEGER
-    Char AS STRING * 1
-END TYPE
+'Load audio
+Path$ = "SpaceshipAudio\"
 
-DIM x AS INTEGER, y AS INTEGER
-DIM row AS SINGLE
-DIM x(1 TO 8) AS INTEGER, y(1 TO 8) AS INTEGER
-x = 40
+DIM SNDCatchEnergy, SNDFullRecharge, SNDShieldAPPEAR, SNDShieldON
+DIM SNDLaser1, SNDLaser2, SNDShipDamage, SNDShipGrow, SNDEnergyUP
+DIM SNDExplosion, SNDOutOfEnergy, SNDExtraLife, SNDShieldOFF
+DIM SNDIntercom
+
+SNDIntercom = _SNDOPEN(Path$ + "Intercom.wav", "SYNC")
+SNDCatchEnergy = _SNDOPEN(Path$ + "CatchEnergy.wav", "SYNC")
+SNDFullRecharge = _SNDOPEN(Path$ + "FullRecharge.wav", "SYNC")
+SNDShieldAPPEAR = _SNDOPEN(Path$ + "ShieldAPPEAR.wav", "SYNC")
+SNDShieldON = _SNDOPEN(Path$ + "ShieldON.wav", "SYNC")
+SNDShieldOFF = _SNDOPEN(Path$ + "ShieldOFF.wav", "SYNC")
+SNDLaser1 = _SNDOPEN(Path$ + "Laser1.wav", "SYNC")
+SNDLaser2 = _SNDOPEN(Path$ + "Laser2.wav", "SYNC")
+SNDShipDamage = _SNDOPEN(Path$ + "ShipDamage.wav", "SYNC")
+SNDShipGrow = _SNDOPEN(Path$ + "ShipGrow.wav", "SYNC")
+SNDEnergyUP = _SNDOPEN(Path$ + "EnergyUP.wav", "SYNC")
+SNDExplosion = _SNDOPEN(Path$ + "Explosion1.wav", "SYNC")
+SNDOutOfEnergy = _SNDOPEN(Path$ + "OutOfEnergy.wav", "SYNC")
+SNDExtraLife = _SNDOPEN(Path$ + "ExtraLife.wav", "SYNC")
+
+
+'Generate smoke images --------------------------------------------
+SmokeCanvas = _NEWIMAGE(3 * _FONTWIDTH, _FONTHEIGHT, 32)
+_DEST SmokeCanvas
+
+COLOR _RGB32(89, 89, 89), _RGBA32(0, 0, 0, 0)
+_PRINTSTRING (0, 0), CHR$(176) + CHR$(177)
+COLOR _RGB32(144, 144, 144), _RGBA32(0, 0, 0, 0)
+_PRINTSTRING (0, 0), CHR$(32) + CHR$(32) + CHR$(178)
+SmokeImages(3) = _COPYIMAGE(SmokeCanvas, 33)
+CLS
+COLOR _RGB32(89, 89, 89), _RGBA32(0, 0, 0, 0)
+_PRINTSTRING (0, 0), CHR$(32) + CHR$(177) + CHR$(178)
+COLOR _RGB32(144, 144, 144), _RGBA32(0, 0, 0, 0)
+_PRINTSTRING (0, 0), CHR$(32) + CHR$(32) + CHR$(178)
+SmokeImages(2) = _COPYIMAGE(SmokeCanvas, 33)
+CLS
+COLOR _RGB32(89, 89, 89), _RGBA32(0, 0, 0, 0)
+_PRINTSTRING (0, 0), CHR$(32) + CHR$(32) + CHR$(178)
+COLOR _RGB32(144, 144, 144), _RGBA32(0, 0, 0, 0)
+_PRINTSTRING (0, 0), CHR$(32) + CHR$(32) + CHR$(178)
+SmokeImages(1) = _COPYIMAGE(SmokeCanvas, 33)
+_DEST 0
+_FREEIMAGE SmokeCanvas
+
+'Generate shield images --------------------------------------------
+ShieldCanvas = _NEWIMAGE(7 * _FONTWIDTH, 4 * _FONTHEIGHT, 32)
+_DEST ShieldCanvas
+FOR c = 1 TO 10
+    COLOR _RGBA32(RND * 200 + 50, RND * 200 + 50, RND * 200 + 50, 25.5 * c)
+    FOR i = 1 TO 4
+        _PRINTSTRING (0, _FONTHEIGHT * i - _FONTHEIGHT), STRING$(7, 176)
+    NEXT i
+    ShieldImages(c) = _COPYIMAGE(ShieldCanvas, 33)
+NEXT c
+_FREEIMAGE ShieldCanvas
+_DEST 0
+
+_DISPLAYORDER _HARDWARE , _SOFTWARE
+
+Boom$ = CHR$(219) + CHR$(178) + CHR$(177) + CHR$(176) + CHR$(15) + CHR$(7) + CHR$(249) + CHR$(250)
+ShipChar$ = CHR$(219) + CHR$(220) + CHR$(223)
+
+RestartGame:
+_PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
+_PALETTECOLOR 1, _RGB32(55, 55, 55)
+CarefulMessage# = -1.5
+EnergyWarning# = -1
+ShieldONMessage# = -1
+ShieldOFFMessage# = -1
+ShieldColorIndex = 1
+x = 5
 y = 25
-Lives = 5
+Points = 0
+Lives = 3
+Energy = 0
+EnergyBars = 0
+Recharge = -1
+SetLevel 1
 Alive = -1
-Boom$ = "--" + CHR$(196) + CHR$(205) + CHR$(254) + CHR$(7) + CHR$(249) + CHR$(250)
-max_stars = 100
-max_enemies = 10
-physics_initialized = false
-DIM SHARED Starfield(max_stars) AS StarField_TYPE
-DIM SHARED Enemies(max_enemies) AS StarField_TYPE
+ShipSize = 2: UpperLimit = 6: LowerLimit = 47: LeftLimit = 5
+InitialSetup = -1
+ShipColor = 14
 
-BoxColor = 10
-_PALETTECOLOR 0, _RGB32(61, 61, 61)
-_PALETTECOLOR 6, _RGB32(20, 20, 30)
 'Wait until all buttons are released:
 DO
 LOOP UNTIL GetButton("", 0) = GetButton.NotFound
+
 DO
     k$ = INKEY$
     IF k$ = CHR$(27) THEN EXIT DO
+    IF UCASE$(k$) = "M" THEN Mute = NOT Mute
+    IF UCASE$(k$) = "L" THEN PlaySound SNDFullRecharge: SetLevel Level + 1
 
     'Grab _BUTTON states using custom function GetButton:
-    IF Pause = 0 AND Alive = -1 THEN
-        IF GetButton("UP", 0) THEN IF y > 1 THEN y = y - 1
-        IF GetButton("DOWN", 0) THEN IF y < 50 THEN y = y + 1
-        IF GetButton("LEFT", 0) THEN IF x > 1 THEN x = x - 1
-        IF GetButton("RIGHT", 0) THEN IF x < 80 THEN x = x + 1
+    IF Pause = 0 AND Alive = -1 AND Recharge = 0 THEN
+        IF GetButton("UP", 0) THEN IF Energy AND y > UpperLimit THEN y = y - 1: Energy = Energy - .001
+        IF GetButton("DOWN", 0) THEN IF Energy AND y < LowerLimit THEN y = y + 1: Energy = Energy - .001
+        IF GetButton("LEFT", 0) THEN IF Energy AND x > LeftLimit THEN x = x - 1: Energy = Energy - .001
+        IF GetButton("RIGHT", 0) THEN IF Energy AND x < 80 THEN x = x + 1: Energy = Energy - .001
 
-        IF GetButton("PINK", 0) THEN BoxColor = 13: ColorChange = -1
-        IF GetButton("GREEN", 0) THEN BoxColor = 10: ColorChange = -1
-        IF GetButton("BLUE", 0) THEN BoxColor = 11: ColorChange = -1
-        IF GetButton("RED", 0) THEN BoxColor = 12: ColorChange = -1
+        IF GetButton("FIRE", 0) THEN GOSUB ShotsFired
     END IF
 
-    IF GetButton("START", 0) THEN
+    IF GetButton("START", 0) AND GetTICKS - LastPause# > .2 THEN
+        LastPause# = GetTICKS
         Pause = NOT Pause
-        'Wait until START button is released:
-        DO
-        LOOP UNTIL GetButton("START", 0) = GetButton.NotFound
+        IF Pause THEN
+            TIMER(TickTimer%) OFF
+            'RemainingLevelTime# = LevelDuration# - (GetTICKS - LevelStart#)
+        ELSE
+            TIMER(TickTimer%) ON
+            'LevelStart# = GetTICKS - (LevelDuration# - RemainingLevelTime#)
+        END IF
     END IF
 
     'Display routines:
-    CLS , 6
-    COLOR , 6
+    CLS , 0
+    COLOR , 0
     'Star field ------------------------------------------------------
-    IF physics_initialized = false THEN
-        'actions
-        create_at_edge = false
-        FOR id = 1 TO max_stars
-            Create_star id, create_at_edge
-        NEXT
-
-        FOR id = 1 TO max_enemies
-            Create_enemy id, create_at_edge
-        NEXT
-        physics_initialized = true
+    IF Recharge THEN
+        IF Stars = 0 THEN
+            PlaySound SNDFullRecharge
+            Stars = -1
+            'actions
+            FOR id = 1 TO MaxStars
+                CreateStar id, 0
+            NEXT
+        END IF
+        IF GetTICKS - RechargeTime# > .03 THEN
+            RechargeTime# = GetTICKS
+            Energy = Energy + 5
+            IF InitialSetup THEN x = x + 1
+        END IF
+        IF Energy >= 100 THEN Recharge = 0: InitialSetup = 0
     END IF
 
-    IF TIMER - move_stars_Last# > .1 AND Pause = 0 AND Alive = -1 THEN
-        move_stars_Last# = TIMER
+    IF GetTICKS - move_stars_Last# > StarFieldSpeed AND Pause = 0 AND Alive = -1 AND Energy > 0 THEN
+        move_stars_Last# = GetTICKS
         'move stars in the starfield array
-        FOR id = 1 TO max_stars
+        FOR id = 1 TO MaxStars
             'move individual star
-            Starfield(id).Position_X = Starfield(id).Position_X - Starfield(id).RelativeSpeed
+            Starfield(id).X = Starfield(id).X - Starfield(id).RelativeSpeed
 
             'if the star came out of the left edge, create a new star at the right edge
-            IF Starfield(id).Position_X < 1 THEN
-                create_at_edge = true
-                Create_star id, create_at_edge
+            IF Starfield(id).X < 1 THEN
+                CreateStar id, -1
             END IF
         NEXT
     END IF
 
-    IF TIMER - move_enemies_Last# > .08 AND Pause = 0 AND Alive = -1 THEN
-        move_enemies_Last# = TIMER
+    IF GetTICKS - move_enemies_Last# > EnemiesSpeed AND Pause = 0 AND Alive = -1 AND Recharge = 0 THEN
+        move_enemies_Last# = GetTICKS
         'move enemies
-        FOR id = 1 TO max_enemies
+        FOR id = 1 TO MaxEnemies
             'move individual enemy
-            Enemies(id).Position_X = Enemies(id).Position_X - Enemies(id).RelativeSpeed
+            IF Enemies(id).Hits > 0 THEN
+                Enemies(id).X = Enemies(id).X - Enemies(id).RelativeSpeed
 
-            'if the enemy came out of the left edge or was killed,
-            'create a new one at the right edge
-            IF Enemies(id).Position_X < 1 THEN
-                create_at_edge = true
-                Create_enemy id, create_at_edge
+                MoveY = CVI(MID$(Enemies(id).MovePattern, (Enemies(id).CurrentMoveStep * 2) - 1, 2))
+                IF Enemies(id).Chase AND Enemies(id).X <= x + 25 THEN
+                    IF Enemies(id).Y < y / 2 THEN MoveY = _CEIL(RND * 3) ELSE MoveY = -_CEIL(RND * 3)
+                END IF
+                Enemies(id).CurrentMoveStep = Enemies(id).CurrentMoveStep MOD Enemies(id).MoveSteps + 1
+                Enemies(id).Y = Enemies(id).Y + MoveY
+
+                IF Enemies(id).CanReverse THEN
+                    'Enemies that reach a screen boundary will have their
+                    'direction reversed
+                    IF Enemies(id).Y < 2 THEN Enemies(id).Y = 2: ReverseEnemyPattern id
+                    IF Enemies(id).Y + (Enemies(id).Height - 1) > 24 THEN
+                        Enemies(id).Y = 24 - (Enemies(id).Height - 1)
+                        ReverseEnemyPattern id
+                    END IF
+
+                    'Sometimes their direction will be reversed randomly too
+                    a% = _CEIL(RND * Enemies(id).MoveSteps)
+                    IF a% = Enemies(id).CurrentMoveStep THEN ReverseEnemyPattern id
+                END IF
+
+                'if the enemy came out of the screen or was killed,
+                'create a new one at the right edge
+                IF Enemies(id).X + Enemies(id).Width < 1 OR _
+                    Enemies(id).Y + Enemies(id).Height < 2 OR _
+                    Enemies(id).Y > 25 THEN
+                    Enemies(id).Hits = 0
+                    CreateEnemy id, Level
+                END IF
             END IF
         NEXT
     END IF
 
-    draw_stars
-
-    IF Alive THEN
-        FOR CheckEnemy = 1 TO max_enemies
-            IF Enemies(CheckEnemy).Position_X = x AND _
-               Enemies(CheckEnemy).Position_Y = _CEIL(row) THEN
-                'Death by enemy
-                'Explosion sound
-                FOR s = 950 TO 810 STEP -1
-                    SOUND (RND * 100 + s / 5 + 30), 0.1
-                NEXT s
-                Alive = 0
-                BustEnemy = 0
-                ii = 0
-                EXIT FOR
-            END IF
-        NEXT CheckEnemy
+    IF GetTICKS - LastEngineEnergy# > 10 THEN
+        LastEngineEnergy# = GetTICKS
+        Energy = Energy - 0.001
     END IF
 
-    'Moving box: -----------------------------------------------------
-    IF (x <> prevx OR y <> prevy OR ColorChange = -1) AND Alive = -1 THEN
-        prevy = y: prevx = x
+    DrawElements
+
+    'Recalculate ship position after move: -----------------------------
+    IF (x <> prevX OR y <> prevY) AND Alive = -1 THEN
+        prevY = y
+        IF prevX < x THEN Smoke = 3 ELSE Smoke = 0
+        prevX = x
 
         row = y / 2
-        IF _CEIL(row) <> row THEN
-            char$ = CHR$(223)
+    END IF
+
+    RoundRow = _CEIL(row)
+    IF RoundRow <> row THEN
+        Char$ = CHR$(223)
+    ELSE
+        Char$ = CHR$(220)
+    END IF
+
+    IF ShotsFired AND Alive THEN
+        'Diagonal fire animation - follows the ship
+        LaserAnimationStep = LaserAnimationStep + 1
+        Laser.X = x: Laser.Y = RoundRow
+
+        IF LaserAnimationStep > LEN(Boom$) THEN
+            ShotsFired = 0
+            LaserAnimationStep = 0
         ELSE
-            char$ = CHR$(220)
-        END IF
+            j = 1
+            x(j) = Laser.X + LaserAnimationStep: y(j) = Laser.Y + LaserAnimationStep: j = j + 1
+            x(j) = Laser.X + LaserAnimationStep: y(j) = Laser.Y - LaserAnimationStep: j = j + 1
 
-        IF ColorChange THEN
-            'Animated feedback for button presses
-            i = i + 1
-
-            'Laser sound
-            IF i = 1 THEN
-                FOR s = 1000 TO 700 STEP -25
-                    SOUND s, 0.1
-                NEXT s
-            END IF
-
-            IF i > LEN(Boom$) THEN
-                ColorChange = 0
-                i = 0
-            ELSE
-                j = 1
-                x(j) = x + i: y(j) = _CEIL(row) + i: j = j + 1
-                x(j) = x + i: y(j) = _CEIL(row) - i: j = j + 1
-                x(j) = x + i: y(j) = _CEIL(row): j = j + 1
-                'x(j) = x - i: y(j) = _CEIL(row) - i: j = j + 1
-                'x(j) = x - i: y(j) = _CEIL(row) + i: j = j + 1
-                'x(j) = x - i: y(j) = _CEIL(row): j = j + 1
-                'x(j) = x: y(j) = _CEIL(row) - i: j = j + 1
-                'x(j) = x: y(j) = _CEIL(row) + i: j = j + 1
-
-                FOR drawIt = 1 TO 3
-                    Visible = -1
-                    IF x(drawIt) < 1 OR x(drawIt) > 80 THEN Visible = 0
-                    IF y(drawIt) < 1 OR y(drawIt) > 25 THEN Visible = 0
-                    COLOR BoxColor, 7
-                    IF Visible THEN
-                        _PRINTSTRING (x(drawIt), y(drawIt)), MID$(Boom$, i, 1)
-                        FOR CheckEnemy = 1 TO max_enemies
-                            IF Enemies(CheckEnemy).Position_X = x(drawIt) AND _
-                               Enemies(CheckEnemy).Position_Y = y(drawIt) THEN
-                                'Killed an enemy
-                                Boom.X = Enemies(CheckEnemy).Position_X
-                                Boom.Y = Enemies(CheckEnemy).Position_Y * 2
-                                BustEnemy = -1
-                                ii = 0
-                                Enemies(CheckEnemy).Position_X = 0
-                                Points = Points + 50
-                                'Explosion sound
-                                FOR s = 950 TO 810 STEP -1
-                                    SOUND (RND * 100 + s / 5 + 30), 0.1
-                                NEXT s
-                            END IF
-                        NEXT CheckEnemy
-                    END IF
-                NEXT
-                COLOR , 6
-            END IF
+            'Diagonal fire
+            FOR drawIt = 1 TO 2
+                Visible = -1
+                IF x(drawIt) < 1 OR x(drawIt) > 80 THEN Visible = 0
+                IF y(drawIt) < 1 OR y(drawIt) > 25 THEN Visible = 0
+                COLOR ShipColor - 8
+                IF Visible THEN
+                    _PRINTSTRING (x(drawIt), y(drawIt)), MID$(Boom$, LaserAnimationStep, 1)
+                    'IF ScreenMap(x(drawIt), y(drawIt)) < 0 THEN
+                    '    CheckEnemy = -ScreenMap(x(drawIt), y(drawIt))
+                    '    Boom.X = Enemies(CheckEnemy).X
+                    '    Boom.Y = Enemies(CheckEnemy).Y * 2
+                    '    EnemyExplosion = -1
+                    '    ExplosionAnimationStep = 0
+                    '    KillEnemy CheckEnemy, ShipSize
+                    '    Points = Points + Enemies(CheckEnemy).Points
+                    '    PlaySound SNDExplosion
+                    'ELSEIF ScreenMap(x(drawIt), y(drawIt)) = ScreenMap.Bonus THEN
+                    '    Boom.X = x(drawIt)
+                    '    Boom.Y = y(drawIt)
+                    '    EnemyExplosion = -1
+                    '    ExplosionAnimationStep = 0
+                    '    Bonus.Active = 0
+                    '    Points = Points + 50
+                    '    PlaySound SNDExplosion
+                    'END IF
+                END IF
+            NEXT
         END IF
     END IF
-    COLOR BoxColor
-    _PRINTSTRING (x, _CEIL(row)), char$
-    _TITLE STR$(x) + "," + STR$(y)
 
-    IF Pause THEN
-        COLOR 15
-        PauseMessage$ = " PAUSED "
+    'Front lasers:
+    IF Alive = -1 AND Recharge = 0 AND Pause = 0 THEN
+        FOR i = 1 TO max_beams
+            IF GetTICKS - Beams(i).StartTime < .8 THEN 'Laser beams last for .8 seconds
+                FOR l = 0 TO Beams(i).Size - 1
+                    IF Beams(i).X + l <= 80 THEN
+                        COLOR ShipColor - 8
+                        IF GetTICKS - Beams(i).StartTime > .5 THEN COLOR 1
+                        _PRINTSTRING (Beams(i).X + l, Beams(i).Y), Beams(i).Char
+                        IF ScreenMap(Beams(i).X + l, Beams(i).Y) < 0 THEN
+                            CheckEnemy = -ScreenMap(Beams(i).X + l, Beams(i).Y)
+                            'Killed an enemy
+                            Boom.X = Enemies(CheckEnemy).X
+                            Boom.Y = Enemies(CheckEnemy).Y * 2
+                            EnemyExplosion = -1
+                            ExplosionAnimationStep = 0
+                            KillEnemy CheckEnemy, ShipSize
+                            'This laser beam can't kill another enemy,
+                            'so we'll throw it out the screen:
+                            Beams(i).X = 81
+                            Points = Points + Enemies(CheckEnemy).Points
+                            PlaySound SNDExplosion
+                        ELSEIF ScreenMap(Beams(i).X + l, Beams(i).Y) = ScreenMap.Bonus THEN
+                            Boom.X = Beams(i).X + l
+                            Boom.Y = Beams(i).Y * 2
+                            EnemyExplosion = -1
+                            ExplosionAnimationStep = 0
+                            Bonus.Active = 0
+                            'This laser beam can't kill another enemy,
+                            'so we'll throw it out the screen:
+                            Beams(i).X = 81
+                            Points = Points + 50
+                            PlaySound SNDExplosion
+                        END IF
+                    END IF
+                NEXT l
+                Beams(i).X = Beams(i).X + 1
+            ELSE
+                Beams(i).X = 81 'Invalidate this beam so a new one can be generated
+            END IF
+        NEXT i
+    END IF
+
+    'Draw ship:
+    'Ü                              Ü
+    ' ßÜÜ    ßÜ               ßÜ    Üß
+    '  ÛÛß     ÛÛÜ            ß
+    'Üß       Üßß
+    '        ß
+    IF GetTICKS - LastShipGrow# < 1 THEN
+        COLOR _CEIL(RND * 14) + 1
+    ELSE
+        COLOR ShipColor
+    END IF
+
+    IF Alive THEN
+        IF ShipSize = 1 THEN
+            IF _CEIL(row) <> row THEN
+                _PRINTSTRING (x - 1, RoundRow - 1), CHR$(220)
+                _PRINTSTRING (x - 1, RoundRow), CHR$(220) + CHR$(223)
+                ShipMap$ = MKI$(x - 1) + MKI$(RoundRow - 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 1) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x) + MKI$(RoundRow)
+            ELSE
+                _PRINTSTRING (x - 1, RoundRow), CHR$(223) + CHR$(220)
+                _PRINTSTRING (x - 1, RoundRow + 1), CHR$(223)
+                ShipMap$ = MKI$(x - 1) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x - 1) + MKI$(RoundRow + 1)
+            END IF
+        ELSEIF ShipSize = 2 THEN
+            IF _CEIL(row) <> row THEN
+                _PRINTSTRING (x - 4, RoundRow - 2), CHR$(220)
+                _PRINTSTRING (x - 3, RoundRow - 1), CHR$(223) + CHR$(220) + CHR$(220)
+                _PRINTSTRING (x - 2, RoundRow), CHR$(219) + CHR$(219) + CHR$(223)
+                _PRINTSTRING (x - 4, RoundRow + 1), CHR$(220) + CHR$(223)
+                ShipMap$ = MKI$(x - 4) + MKI$(RoundRow - 2)
+                ShipMap$ = ShipMap$ + MKI$(x - 3) + MKI$(RoundRow - 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 2) + MKI$(RoundRow - 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 1) + MKI$(RoundRow - 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 2) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x - 1) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x - 4) + MKI$(RoundRow + 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 3) + MKI$(RoundRow + 1)
+            ELSE
+                _PRINTSTRING (x - 4, RoundRow - 1), CHR$(223) + CHR$(220)
+                _PRINTSTRING (x - 2, RoundRow), CHR$(219) + CHR$(219) + CHR$(220)
+                _PRINTSTRING (x - 3, RoundRow + 1), CHR$(220) + CHR$(223) + CHR$(223)
+                _PRINTSTRING (x - 4, RoundRow + 2), CHR$(223)
+                ShipMap$ = MKI$(x - 4) + MKI$(RoundRow - 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 3) + MKI$(RoundRow - 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 2) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x - 1) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x) + MKI$(RoundRow)
+                ShipMap$ = ShipMap$ + MKI$(x - 3) + MKI$(RoundRow + 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 2) + MKI$(RoundRow + 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 1) + MKI$(RoundRow + 1)
+                ShipMap$ = ShipMap$ + MKI$(x - 4) + MKI$(RoundRow + 2)
+
+            END IF
+        END IF
+        IF Bonus.Active THEN
+            IF Bonus.Color = -1 THEN
+                COLOR _CEIL(RND * 14) + 1
+            ELSE
+                COLOR Bonus.Color
+            END IF
+            _PRINTSTRING (x, RoundRow), Char$
+        END IF
+    END IF
+    COLOR , 0
+
+    'Collision detection (ship)
+    IF Alive THEN
+        Collision = 0
+        StartCheck = 1
+        DO
+            Ship.X = CVI(MID$(ShipMap$, StartCheck, 2))
+            Ship.Y = CVI(MID$(ShipMap$, StartCheck + 2, 2))
+            Collision = ScreenMap(Ship.X, Ship.Y)
+            IF Collision THEN EXIT DO
+            StartCheck = StartCheck + 4
+            IF StartCheck > LEN(ShipMap$) THEN EXIT DO
+        LOOP
+
+        'Check bonuses
+        IF Bonus.Active = -1 AND Collision = ScreenMap.Bonus THEN
+            SELECT CASE Bonus.Type$
+                CASE "LIFE"
+                    Bonus.Active = 0
+                    IF ShipSize = 1 THEN
+                        PlaySound SNDShipGrow
+                        ShipSize = 2: UpperLimit = 6: LowerLimit = 47: LeftLimit = 5
+                        Energy = Energy + 5
+                        IF y < UpperLimit THEN y = UpperLimit
+                        IF y > LowerLimit THEN y = LowerLimit
+                        IF x < LeftLimit THEN x = LeftLimit
+                        LastShipGrow# = GetTICKS
+                    ELSE
+                        Lives = Lives + 1
+                        PlaySound SNDExtraLife
+                    END IF
+                CASE "ENERGY"
+                    'IF EnergyBars < 3 THEN
+                    '    EnergyBars = EnergyBars + 1
+                    '    PlaySound SNDCatchEnergy
+                    '    Bonus.Active = 0
+                    'END IF
+                    PlaySound SNDEnergyUP
+                    Bonus.Active = 0
+                    Energy = Energy + 20
+                CASE "SHIELD"
+                    PlaySound SNDShieldON
+                    ShieldColorIndex = 1
+                    Shield = -1
+                    ShieldONMessage# = GetTICKS
+                    ShieldInitiated# = GetTICKS
+                    Bonus.Active = 0
+            END SELECT
+        END IF
+
+        'Check enemies
+        IF Collision < 0 THEN
+            'Negative value is the hit enemy id, with negative sign
+            CheckEnemy = -Collision
+            'Death by enemy (or severe damage)
+            Points = Points + Enemies(CheckEnemy).Points
+            IF ShipSize = 1 THEN
+                PlaySound SNDExplosion
+                Bonus.Active = 0
+                ExplosionAnimationStep = 0
+                'Center explosion around collision area:
+                Boom.X = Enemies(CheckEnemy).X
+                Boom.Y = Enemies(CheckEnemy).Y * 2
+                'Enemy dies too:
+                KillEnemy CheckEnemy, ShipSize
+                IF Shield THEN
+                    ShieldOFFMessage# = GetTICKS
+                    Shield = 0
+                    Damage = -1
+                    EnemyExplosion = -1
+                ELSE
+                    Alive = 0
+                    DeathMessage$ = "    BUSTED!!   "
+                    EnemyExplosion = 0
+                END IF
+            ELSE
+                PlaySound SNDExplosion
+                Boom.X = Enemies(CheckEnemy).X
+                Boom.Y = Enemies(CheckEnemy).Y * 2
+                ExplosionAnimationStep = 0
+                'Enemy dies too:
+                KillEnemy CheckEnemy, ShipSize
+                IF Shield THEN
+                    ShieldOFFMessage# = GetTICKS
+                    Shield = 0
+                    Damage = -1
+                    EnemyExplosion = -1
+                ELSE
+                    LastLife# = GetTICKS
+                    Damage = -1
+                    PlaySound SNDShipDamage
+                    IF Bonus.Type$ = "LIFE" THEN Bonus.Color = 4
+                    EnemyExplosion = -1
+                    CarefulMessage# = GetTICKS
+                    ShipSize = 1: UpperLimit = 4: LowerLimit = 49: LeftLimit = 2
+                    Energy = Energy / 2
+                END IF
+            END IF 'Shipsize = 1
+        END IF 'Collision < 0
+    END IF 'Alive
+
+    'Is a shield active?
+    IF Shield THEN
+        'Shields last for 30 seconds
+        SELECT CASE GetTICKS - ShieldInitiated#
+            CASE IS < 20: LastShieldImage = UBOUND(ShieldImages)
+            CASE IS < 25: LastShieldImage = UBOUND(ShieldImages) / 2
+            CASE IS < 30: LastShieldImage = 3
+        END SELECT
+
+        IF GetTICKS - LastShieldColor# > .05 THEN
+            LastShieldColor# = GetTICKS
+            ShieldColorIndex = ShieldColorIndex + 1
+            IF ShieldColorIndex > LastShieldImage THEN ShieldColorIndex = 1
+        END IF
+        IF ShipSize = 1 THEN x.offset! = 3.5 ELSE x.offset! = 5
+        _PUTIMAGE ((x - x.offset!) * _FONTWIDTH - _FONTWIDTH, (row - 1.3) * _FONTHEIGHT - _FONTHEIGHT), ShieldImages(ShieldColorIndex), 0
+
+        IF GetTICKS - ShieldInitiated# > 30 THEN Shield = 0: PlaySound SNDShieldOFF: ShieldOFFMessage# = GetTICKS
+    END IF
+
+    'If moving forward, draw a smoke trail behind the ship
+    IF Smoke THEN
+        IF ShipSize = 1 THEN x.offset! = 3.5 ELSE x.offset! = 5
+        _PUTIMAGE ((x - x.offset!) * _FONTWIDTH - _FONTWIDTH, (row + .3) * _FONTHEIGHT - _FONTHEIGHT), SmokeImages(Smoke), 0
+        Smoke = Smoke - 1
+        IF Smoke < 1 THEN Smoke = 0
+    END IF
+
+    '_TITLE STR$(x) + "," + STR$(y)
+
+    IF GetTICKS - CarefulMessage# < 1.5 THEN
+        COLOR 15, 4
+        PauseMessage$ = " UNIT DAMAGED! "
         _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
     END IF
 
-    COLOR 15
-    _PRINTSTRING (1, 1), "Lives:" + STR$(Lives)
-    _PRINTSTRING (1, 2), "Points:" + STR$(Points)
+    IF Pause THEN
+        COLOR 15, 0
+        PauseMessage$ = "    PAUSED     "
+        _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
+    END IF
 
-    IF Alive = 0 OR BustEnemy = -1 THEN
-        IF BustEnemy THEN
-            bx = x: by = y: brow! = row
-            x = Boom.X: y = Boom.Y: row = y / 2
-        END IF
+    GOSUB UpdateStats
+
+    'Check energy:
+    IF Alive = -1 AND Energy = 0 THEN
+        Alive = 0
+        EnemyExplosion = 0
+        Shield = 0
+        DeathMessage$ = " NO MORE ENERGY! "
+        PlaySound SNDExplosion
+        PlaySound SNDOutOfEnergy
+        Bonus.Active = 0
+        ExplosionAnimationStep = 0
+        Boom.X = x
+        Boom.Y = y / 2
+    END IF
+
+    IF Alive = 0 OR EnemyExplosion = -1 THEN 'GO BOOM!
+        bx = x: by = y: brow! = row
+        x = Boom.X: y = Boom.Y: row = y / 2: RoundRow = _CEIL(row)
         'Explosion animation
-        ii = ii + 1
+        ExplosionAnimationStep = ExplosionAnimationStep + 1
         j = 1
-        x(j) = x + ii: y(j) = _CEIL(row) + ii: j = j + 1
-        x(j) = x + ii: y(j) = _CEIL(row) - ii: j = j + 1
-        x(j) = x + ii: y(j) = _CEIL(row): j = j + 1
-        x(j) = x - ii: y(j) = _CEIL(row) - ii: j = j + 1
-        x(j) = x - ii: y(j) = _CEIL(row) + ii: j = j + 1
-        x(j) = x - ii: y(j) = _CEIL(row): j = j + 1
-        x(j) = x: y(j) = _CEIL(row) - ii: j = j + 1
-        x(j) = x: y(j) = _CEIL(row) + ii: j = j + 1
+        x(j) = x + ExplosionAnimationStep: y(j) = RoundRow + ExplosionAnimationStep: j = j + 1
+        x(j) = x + ExplosionAnimationStep: y(j) = RoundRow - ExplosionAnimationStep: j = j + 1
+        x(j) = x + ExplosionAnimationStep: y(j) = RoundRow: j = j + 1
+        x(j) = x - ExplosionAnimationStep: y(j) = RoundRow - ExplosionAnimationStep: j = j + 1
+        x(j) = x - ExplosionAnimationStep: y(j) = RoundRow + ExplosionAnimationStep: j = j + 1
+        x(j) = x - ExplosionAnimationStep: y(j) = RoundRow: j = j + 1
+        x(j) = x: y(j) = RoundRow - ExplosionAnimationStep: j = j + 1
+        x(j) = x: y(j) = RoundRow + ExplosionAnimationStep: j = j + 1
 
         FOR drawIt = 1 TO 8
             Visible = -1
             IF x(drawIt) < 1 OR x(drawIt) > 80 THEN Visible = 0
             IF y(drawIt) < 1 OR y(drawIt) > 25 THEN Visible = 0
-            COLOR 11 - ii
+            IF EnemyExplosion OR Damage THEN
+                SELECT CASE ExplosionAnimationStep
+                    CASE 1 TO 4: COLOR 12: IF Damage THEN _PALETTECOLOR 0, _RGB32(28, 28, 28)
+                    CASE 5 TO 8: COLOR 4: IF Damage THEN _PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
+                END SELECT
+                IF ExplosionAnimationStep = 8 THEN Damage = 0
+            ELSE
+                SELECT CASE ExplosionAnimationStep
+                    CASE 1 TO 3: COLOR 15: _PALETTECOLOR 0, _RGB32(120, 120, 120)
+                    CASE 4 TO 6: COLOR 11: _PALETTECOLOR 0, _RGB32(255, 255, 255)
+                    CASE 7 TO 8: COLOR 3: _PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
+                END SELECT
+            END IF
             IF Visible THEN
-                _PRINTSTRING (x(drawIt), y(drawIt)), MID$(Boom$, ii, 1)
+                _PRINTSTRING (x(drawIt), y(drawIt)), MID$(Boom$, ExplosionAnimationStep, 1)
             END IF
         NEXT
-        SELECT CASE ii
+        COLOR , 0
+        SELECT CASE ExplosionAnimationStep
             CASE 1 TO 4
                 COLOR 8
-                _PRINTSTRING (x, _CEIL(row)), CHR$(176)
+                IF x > 0 AND x <= 80 AND RoundRow > 0 AND RoundRow <= 25 THEN _
+                    _PRINTSTRING (x, RoundRow), CHR$(176)
             CASE 5 TO 7
                 COLOR 8
-                _PRINTSTRING (x, _CEIL(row)), CHR$(15)
+                IF x > 0 AND x <= 80 AND RoundRow > 0 AND RoundRow <= 25 THEN _
+                    _PRINTSTRING (x, RoundRow), CHR$(15)
             CASE 8
-                _PRINTSTRING (x, _CEIL(row)), " "
+                IF x > 0 AND x <= 80 AND RoundRow > 0 AND RoundRow <= 25 THEN _
+                    _PRINTSTRING (x, RoundRow), " "
         END SELECT
 
-        IF BustEnemy THEN
-            x = bx: y = by: row = brow!
-            IF ii = 8 THEN BustEnemy = 0
+        x = bx: y = by: row = brow!: RoundRow = _CEIL(row)
+        IF EnemyExplosion THEN
+            IF ExplosionAnimationStep = 8 THEN EnemyExplosion = 0
         ELSE
             COLOR 15, 4
-            PauseMessage$ = " BUSTED "
-            _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
-            IF ii = 9 THEN
+            _PRINTSTRING (_WIDTH \ 2 - LEN(DeathMessage$) \ 2, _HEIGHT \ 2), DeathMessage$
+            IF ExplosionAnimationStep = 8 THEN
                 Lives = Lives - 1
-                Alive = -1
-                physics_initialized = false
-                x = 40
-                y = 25
+                Energy = 0
+                GOSUB UpdateStats
+                _DISPLAY
                 _DELAY 1
+                LastShipGrow# = GetTICKS
+                Alive = -1
+                Shield = 0
+                Bonus.Active = 0
+                ShipSize = 2: UpperLimit = 6: LowerLimit = 47: LeftLimit = 5
+                Stars = 0
+                Recharge = -1: InitialSetup = -1
+                FOR id = 1 TO MaxEnemies
+                    Enemies(id).Hits = 0
+                    CreateEnemy id, Level
+                NEXT
+                IF GetTICKS - LevelStart# > LevelDuration# / 2 THEN
+                    LevelStart# = GetTICKS - LevelDuration# / 2 'Back to midlevel
+                ELSE
+                    LevelStart# = GetTICKS 'Reset the current level
+                END IF
+                ShowLevelName# = GetTICKS
+                x = 5
+                y = 25
             ELSE
+                _DISPLAY
                 _DELAY .05
             END IF
         END IF
     END IF
 
+    IF Pause = 0 AND Alive = -1 THEN
+        IF GetTICKS - LevelStart# > LevelDuration# THEN PlaySound SNDFullRecharge: SetLevel Level + 1
+    END IF
+
     _DISPLAY
     _LIMIT 30
-LOOP UNTIL Lives = 0
+LOOP UNTIL Lives < 0
 
-COLOR 15, 4
-PauseMessage$ = " GAME OVER "
-_PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
+IF Lives < 0 THEN
+    COLOR 15, 4
+    PauseMessage$ = "   GAME OVER   "
+    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
+END IF
+
+PauseMessage$ = "  Press Start  "
+_PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2 + 1), PauseMessage$
+_DISPLAY
+
+DO
+    IF _KEYHIT = 27 THEN SYSTEM
+LOOP UNTIL GetButton("START", MyDevices(ChosenController).ID)
+
+GOTO RestartGame
+
 END
 
+ShotsFired:
+'Find an empty laser beam slot
+FOR NewBeam = 1 TO max_beams
+    IF Beams(NewBeam).X = 0 OR Beams(NewBeam).X > 80 THEN EXIT FOR
+NEXT
+IF NewBeam > max_beams THEN RETURN 'No available beam slots
+
+'Check for the last beam StartTime so
+'we don't fire multiple lasers too quickly:
+IF GetTICKS - LastBeam# < .2 THEN RETURN
+LastBeam# = GetTICKS
+
+IF ShipSize = 1 THEN Energy = Energy - .5 ELSE Energy = Energy - .8
+
+'Laser sound:
+IF ShipSize = 1 THEN PlaySound SNDLaser1 ELSE PlaySound SNDLaser2
+
+ShotsFired = -1
+Beams(NewBeam).X = x
+Beams(NewBeam).Y = RoundRow
+Beams(NewBeam).Size = ShipSize * 2
+Beams(NewBeam).StartTime = GetTICKS
+Beams(NewBeam).Char = Char$
+RETURN
+
+UpdateStats:
+COLOR , 1
+_PRINTSTRING (1, 1), STRING$(80, 32)
+COLOR ShipColor
+_PRINTSTRING (2, 1), CHR$(220) + CHR$(223) + CHR$(220)
+COLOR 15
+IF Lives >= 0 THEN _PRINTSTRING (6, 1), "x" + STR$(Lives) ELSE _PRINTSTRING (6, 1), "x 0"
+_PRINTSTRING (12, 1), STR$(Points)
+IF Energy > 100 THEN Energy = 100
+IF INT(Energy) <= 0 THEN Energy = 0
+IF Mute THEN COLOR 0, 7: _PRINTSTRING (20, 1), " MUTE ": COLOR , 1
+
+COLOR 15
+TimeRemaining# = LevelDuration# - (GetTICKS - LevelStart#)
+IF TimeRemaining# > 0 AND TimeRemaining# <= 10 AND Pause = 0 THEN
+    _PRINTSTRING (60, 25), " NEXT MISSION IN" + STR$(INT(TimeRemaining#)) + " "
+END IF
+
+COLOR 2
+_PRINTSTRING (69 - EnergyBars, 1), STRING$(EnergyBars, 22)
+EnergyStat$ = STRING$(Energy / 10, 254)
+EnergyStat$ = EnergyStat$ + STRING$(10 - LEN(EnergyStat$), 249)
+
+IF GetTICKS - ShowLevelName# < 2 THEN
+    COLOR 0, 7
+    PauseMessage$ = " Chapter" + STR$(Level) + " "
+    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2 - 1), PauseMessage$
+    _PRINTSTRING (_WIDTH \ 2 - LEN(LevelName$) \ 2, _HEIGHT \ 2), LevelName$
+ELSE
+    IF GetTICKS - LastTipUpdate# > 15 THEN
+        LastTipUpdate# = GetTICKS
+        LastTipShown# = GetTICKS
+        IF LevelTips.Position > 0 THEN
+            Start.Position = LevelTips.Position + 1
+            LevelTips.Position = INSTR(Start.Position, LevelTips$, CHR$(0))
+            IF LevelTips.Position > 0 THEN
+                NextTip$ = MID$(LevelTips$, Start.Position, LevelTips.Position - Start.Position)
+            ELSE
+                NextTip$ = MID$(LevelTips$, Start.Position)
+            END IF
+            PlaySound SNDIntercom
+        ELSE
+            NextTip$ = ""
+        END IF
+    END IF
+
+    IF GetTICKS - LastTipShown# < 5 THEN
+        IF LEN(NextTip$) THEN
+            ThirdLine$ = ""
+            Colon = INSTR(NextTip$, ":")
+            Pipe = INSTR(NextTip$, "|")
+            IF Pipe THEN
+                SecondLine$ = MID$(NextTip$, Colon + 1, Pipe - Colon)
+                ThirdLine$ = MID$(NextTip$, INSTR(NextTip$, "|") + 1)
+            ELSE
+                SecondLine$ = MID$(NextTip$, Colon + 1)
+            END IF
+            COLOR 0, 7
+            _PRINTSTRING (1, 22), " " + LEFT$(NextTip$, INSTR(NextTip$, ":")) + " "
+            _PRINTSTRING (1, 23), " " + SecondLine$ + " "
+            IF Pipe THEN
+                _PRINTSTRING (1, 24), " " + ThirdLine$ + " "
+            END IF
+        END IF
+    END IF
+END IF
+
+IF GetTICKS - ShieldONMessage# < 1 THEN
+    COLOR 0, 7
+    PauseMessage$ = " SHIELD ENGAGED "
+    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, 1), PauseMessage$
+END IF
+
+IF GetTICKS - ShieldOFFMessage# < 1 THEN
+    COLOR 0, 7
+    IF GetTICKS - ShieldInitiated# > 20 THEN PauseMessage$ = " SHIELD RELEASED " ELSE PauseMessage$ = " SHIELD DESTROYED "
+    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, 1), PauseMessage$
+END IF
+
+COLOR , 1
+
+IF Energy <= 10 AND Alive = -1 AND Recharge = 0 THEN
+    COLOR 15, 4
+    IF GetTICKS - EnergyWarning# > 1 THEN
+        EnergyWarning# = GetTICKS
+        EnergyWarningText = NOT EnergyWarningText
+        IF EnergyWarningText THEN
+            PauseMessage$ = " LOW RESOURCES "
+        ELSE
+            PauseMessage$ = "    DANGER!    "
+        END IF
+    END IF
+    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, 1), PauseMessage$
+END IF
+
+SELECT CASE Energy
+    CASE 0 TO 10: COLOR 28, 1
+    CASE 11 TO 30: COLOR 12, 1
+    CASE 31 TO 60: COLOR 14, 1
+    CASE 61 TO 100: COLOR 10, 1
+END SELECT
+_PRINTSTRING (70, 1), EnergyStat$
+
+COLOR , 0
+RETURN
+
 FileError:
-PRINT
-PRINT "File operation error."
 RESUME NEXT
 
 FUNCTION GetButton (Name$, DeviceID AS INTEGER)
-    SHARED GetButton.Found, GetButton.NotFound, GetButton.Multiple
+    DIM i AS INTEGER
     STATIC LastDevice AS INTEGER
 
     'Initialize SHARED variables used for return codes
@@ -433,78 +1065,409 @@ FUNCTION GetButton (Name$, DeviceID AS INTEGER)
         IF LastDevice = 0 THEN ERROR 5
     END IF
 
-    'Read the device's buffer:
-    DO WHILE _DEVICEINPUT(LastDevice): LOOP
+    IF UseKeyboard = 0 THEN
+        'Read the device's buffer:
+        DO WHILE _DEVICEINPUT(LastDevice): LOOP
 
-    IF LEN(Name$) THEN
-        'If button Name$ is passed, we look for that specific ID.
-        'If pressed, we return -1
-        FOR i = 1 TO UBOUND(ButtonMap)
-            IF UCASE$(RTRIM$(ButtonMap(i).Name)) = UCASE$(Name$) THEN
-                'Found the requested button's ID.
-                'Time to query the controller:
-                GetButton = _BUTTON(ButtonMap(i).ID) 'Return result maps to .NotFound = 0 or .Found = -1
-                EXIT FUNCTION
-            END IF
-        NEXT i
+        IF LEN(Name$) THEN
+            'If button Name$ is passed, we look for that specific ID.
+            'If pressed, we return -1
+            FOR i = 1 TO UBOUND(ButtonMap)
+                IF UCASE$(RTRIM$(ButtonMap(i).Name)) = UCASE$(Name$) THEN
+                    'Found the requested button's ID.
+                    'Time to query the controller:
+                    GetButton = _BUTTON(ButtonMap(i).ID) 'Return result maps to .NotFound = 0 or .Found = -1
+                    EXIT FUNCTION
+                END IF
+            NEXT i
+        ELSE
+            'Otherwise we return every button whose state is -1
+            'Return is passed by changing Name$ and GetButton then returns -2
+            FOR i = 1 TO _LASTBUTTON(LastDevice)
+                IF _BUTTON(i) THEN Name$ = Name$ + MKI$(i)
+            NEXT i
+            IF LEN(Name$) = 0 THEN EXIT FUNCTION
+            IF LEN(Name$) = 2 THEN GetButton = GetButton.Found ELSE GetButton = GetButton.Multiple
+        END IF
     ELSE
-        'Otherwise we return every button whose state is -1
-        'Return is passed by changing Name$ and GetButton then returns -2
-        FOR i = 1 TO _LASTBUTTON(LastDevice)
-            IF _BUTTON(i) THEN Name$ = Name$ + MKI$(i)
-        NEXT i
-        IF LEN(Name$) = 0 THEN EXIT FUNCTION
-        IF LEN(Name$) = 2 THEN GetButton = GetButton.Found ELSE GetButton = GetButton.Multiple
+        IF LEN(Name$) THEN
+            'If button Name$ is passed, we look for that specific ID.
+            'If pressed, we return -1
+            FOR i = 1 TO UBOUND(ButtonMap)
+                IF UCASE$(RTRIM$(ButtonMap(i).Name)) = UCASE$(Name$) THEN
+                    'Found the requested button's ID.
+                    'Time to query the controller:
+                    GetButton = _KEYDOWN(ButtonMap(i).ID) 'Return result maps to .NotFound = 0 or .Found = -1
+                    EXIT FUNCTION
+                END IF
+            NEXT i
+        END IF
     END IF
 END FUNCTION
 
-SUB Create_star (id, create_at_edge)
-    IF create_at_edge = true THEN
+SUB CreateStar (id, create_at_edge)
+    IF create_at_edge THEN
         'will create star at right edge, create values based on that
-        Starfield(id).Position_X = 80
+        Starfield(id).X = 80
     ELSE
         'will create stars scattered to fill the first frame, create values based on that
-        Starfield(id).Position_X = INT(RND * 80 + 1)
+        Starfield(id).X = INT(RND * 80 + 1)
     END IF
-    Starfield(id).Position_Y = INT(RND * 25 + 1)
+    Starfield(id).Y = INT(RND * 24 + 1) + 1
     'speed in pixels per frame, will be used later to have layers of stars that appear to move at different speeds.
     Starfield(id).RelativeSpeed = INT(RND * 3 + 1)
 
     SELECT CASE Starfield(id).RelativeSpeed
-        CASE 1: Starfield(id).Color = 0: Starfield(id).Char = CHR$(250)
+        CASE 1: Starfield(id).Color = 8: Starfield(id).Char = CHR$(250)
         CASE 2: Starfield(id).Color = 8: Starfield(id).Char = CHR$(249)
         CASE 3: Starfield(id).Color = 7: Starfield(id).Char = CHR$(249)
     END SELECT
 END SUB
 
-SUB Create_enemy (id, create_at_edge)
-    Enemies(id).Position_X = 80 + INT(RND * 40 + 1)
-    Enemies(id).Position_Y = INT(RND * 25 + 1)
-    Enemies(id).RelativeSpeed = 1 'INT(RND * 2 + 1)
+SUB CreateBonus
+    DIM B%
+    SHARED ShipSize AS _BYTE, Shield AS _BYTE, SNDShieldAPPEAR, Recharge AS _BYTE
+    SHARED LastLife#, LastEnergy#, LastShield#
+
+    IF Recharge THEN EXIT SUB
+
+    B% = _CEIL(RND * 3)
+    SELECT CASE B%
+        CASE 1 'Life
+            IF (GetTICKS - LastLife# > 60 AND ShipSize = 2) OR _
+               (GetTICKS - LastLife# > 25 AND ShipSize = 1) THEN
+                LastLife# = GetTICKS
+                Bonus.Type$ = "LIFE"
+                Bonus.Active = -1
+                IF ShipSize = 1 THEN Bonus.Color = 4 ELSE Bonus.Color = 2
+                Bonus.X = 80
+                Bonus.Height = 3
+                Bonus.Width = 7
+                Bonus.Shape$ = CHR$(220) + CHR$(219) + CHR$(219) + CHR$(220) + CHR$(219) + CHR$(219) + CHR$(220) + CHR$(223) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(219) + CHR$(223) + CHR$(32) + CHR$(32)
+                Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
+                Bonus.Speed# = .2
+            END IF
+        CASE 2
+            IF GetTICKS - LastEnergy# > 20 OR Energy < 10 THEN
+                LastEnergy# = GetTICKS
+                Bonus.Type$ = "ENERGY"
+                Bonus.Active = -1
+                Bonus.X = 80
+                Bonus.Color = 10
+                Bonus.Height = 3
+                Bonus.Width = 10
+                'Bonus.Shape$ = CHR$(218) + STRING$(4, 196) + CHR$(191) + " "
+                'Bonus.Shape$ = Bonus.Shape$ + CHR$(179) + STRING$(4, 254) + CHR$(198) + CHR$(240)
+                'Bonus.Shape$ = Bonus.Shape$ + CHR$(192) + STRING$(4, 196) + CHR$(217)
+                Bonus.Shape$ = CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(219) + CHR$(254) + CHR$(254) + CHR$(254) + CHR$(254) + CHR$(254) + CHR$(254) + CHR$(254) + CHR$(219) + CHR$(8) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32)
+                Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
+                Bonus.Speed# = .05
+            END IF
+        CASE 3
+            IF GetTICKS - LastShield# > 120 AND Shield = 0 THEN
+                PlaySound SNDShieldAPPEAR
+                LastShield# = GetTICKS
+                Bonus.Type$ = "SHIELD"
+                Bonus.Active = -1
+                Bonus.X = 80
+                Bonus.Color = -1 'Makes it random
+                Bonus.Height = 4
+                Bonus.Width = 7
+                Bonus.Shape$ = STRING$(7, 176)
+                Bonus.Shape$ = Bonus.Shape$ + CHR$(176) + "     " + CHR$(176)
+                Bonus.Shape$ = Bonus.Shape$ + CHR$(176) + "     " + CHR$(176)
+                Bonus.Shape$ = Bonus.Shape$ + STRING$(7, 176)
+                Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
+                Bonus.Speed# = .08
+            END IF
+    END SELECT
 END SUB
 
-SUB draw_stars
-    SHARED max_stars
-    SHARED max_enemies
-    FOR id = 1 TO max_stars
+SUB ReverseEnemyPattern (id)
+    FOR i = 1 TO Enemies(id).MoveSteps
+        MoveY = CVI(MID$(Enemies(id).MovePattern, (i * 2) - 1, 2))
+        MID$(Enemies(id).MovePattern, (i * 2) - 1, 2) = MKI$(-MoveY)
+    NEXT i
+END SUB
+
+SUB CreateEnemy (id, Level)
+    SHARED Energy AS SINGLE, RoundRow AS INTEGER
+    DIM a AS _BYTE
+    IF Bonus.Active = 0 THEN CreateBonus
+    SELECT CASE Level
+        CASE 1
+            IF Enemies(id).Hits <= 0 THEN
+                Enemies(id).X = 80 + _CEIL(RND * 80)
+                Enemies(id).Y = _CEIL(RND * 24) + 1
+                Enemies(id).Color = 12
+                Enemies(id).Points = 50
+                Enemies(id).RelativeSpeed = 1 'INT(RND * 2 + 1)
+                Enemies(id).Hits = 2
+                Enemies(id).Shape = CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(222) + CHR$(219) + CHR$(178) + CHR$(177) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223)
+                Enemies(id).Width = 5
+                Enemies(id).Height = 3
+                'Some will go up, some will go down.
+                IF Enemies(id).Y > 12 THEN
+                    m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1)
+                ELSE
+                    m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(1) + MKI$(1) + MKI$(1) + MKI$(1)
+                END IF
+                Enemies(id).MovePattern = m$
+                Enemies(id).CanReverse = -1
+                Enemies(id).Chase = 0
+                Enemies(id).MoveSteps = LEN(m$) / 2
+                Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+            ELSE
+                'Enemy not yet killed, so we'll turn it into its second form
+                Enemies(id).Color = 4
+                Enemies(id).Points = 25
+                Enemies(id).RelativeSpeed = 2 'INT(RND * 2 + 1)
+                Enemies(id).Shape = CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(176) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32)
+                Enemies(id).Width = 5
+                Enemies(id).Height = 3
+                'Some will go up, some will go down.
+                IF Enemies(id).Y > 12 THEN
+                    m$ = MKI$(-1)
+                ELSE
+                    m$ = MKI$(1)
+                END IF
+                Enemies(id).CanReverse = 0
+                Enemies(id).MovePattern = m$
+                Enemies(id).MoveSteps = LEN(m$) / 2
+                Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+            END IF
+        CASE 2
+            IF Enemies(id).Hits <= 0 THEN
+                Enemies(id).X = 80 + _CEIL(RND * 80)
+                Enemies(id).Y = _CEIL(RND * 24) + 1
+                Enemies(id).Color = -1
+                Enemies(id).Points = 100
+                Enemies(id).RelativeSpeed = _CEIL(RND * 2)
+                Enemies(id).Hits = 2
+                Enemies(id).Shape = CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32)
+                Enemies(id).Width = 15
+                Enemies(id).Height = 5
+                IF Enemies(id).Y > 12 THEN
+                    m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(-1)
+                ELSE
+                    m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(1)
+                END IF
+                Enemies(id).MovePattern = m$
+                Enemies(id).CanReverse = -1
+                Enemies(id).Chase = 0
+                Enemies(id).MoveSteps = LEN(m$) / 2
+                Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+            ELSE
+                'Enemy not yet killed, will try to run away wounded
+                Enemies(id).Color = 8
+                Enemies(id).Points = 50
+                Enemies(id).RelativeSpeed = 3 'INT(RND * 2 + 1)
+                'Some will go up, some will go down.
+                IF Enemies(id).Y > 12 THEN
+                    m$ = MKI$(-1)
+                ELSE
+                    m$ = MKI$(1)
+                END IF
+                Enemies(id).CanReverse = 0
+                Enemies(id).MovePattern = m$
+                Enemies(id).MoveSteps = LEN(m$) / 2
+                Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+            END IF
+        CASE 3
+            IF Enemies(id).Hits <= 0 THEN
+                Enemies(id).X = 80 + _CEIL(RND * 20)
+                Enemies(id).Y = _CEIL(RND * 24) + 1
+                Enemies(id).Color = 5
+                Enemies(id).Hits = 1
+                Enemies(id).Points = 50
+                Enemies(id).RelativeSpeed = 1
+                Enemies(id).Shape = CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(176) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32)
+                Enemies(id).Width = 5
+                Enemies(id).Height = 3
+                'Some will go up, some will go down.
+                IF Enemies(id).Y > 12 THEN
+                    m$ = MKI$(0) + MKI$(0) + MKI$(-1)
+                ELSE
+                    m$ = MKI$(0) + MKI$(0) + MKI$(1)
+                END IF
+                Enemies(id).Chase = -1
+                Enemies(id).CanReverse = -1
+                Enemies(id).MovePattern = m$
+                Enemies(id).MoveSteps = LEN(m$) / 2
+                Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+            END IF
+    END SELECT
+END SUB
+
+SUB DrawElements
+    'Besides drawing elements, this sub fills the array ScreenMap,
+    'which is used for lazy collision detection in the main game loop.
+
+    DIM x AS INTEGER, y AS INTEGER, c AS INTEGER
+    DIM id AS INTEGER, Char$
+    SHARED Pause AS _BYTE, Alive AS _BYTE, Visible AS _BYTE
+    STATIC LastBonusUpdate#
+
+    'Stars
+    FOR id = 1 TO MaxStars
         Visible = -1
-        IF Starfield(id).Position_X < 1 OR Starfield(id).Position_X > 80 THEN Visible = 0
-        IF Starfield(id).Position_Y < 1 OR Starfield(id).Position_Y > 25 THEN Visible = 0
+        IF Starfield(id).X < 1 OR Starfield(id).X > 80 THEN Visible = 0
+        IF Starfield(id).Y < 1 OR Starfield(id).Y > 25 THEN Visible = 0
         IF Visible THEN
             COLOR Starfield(id).Color
-            _PRINTSTRING (Starfield(id).Position_X, Starfield(id).Position_Y), Starfield(id).Char
+            _PRINTSTRING (Starfield(id).X, Starfield(id).Y), Starfield(id).Char
         END IF
     NEXT
 
-    'enemies too
-    FOR id = 1 TO max_enemies
-        Visible = -1
-        IF Enemies(id).Position_X < 1 OR Enemies(id).Position_X > 80 THEN Visible = 0
-        IF Enemies(id).Position_Y < 1 OR Enemies(id).Position_Y > 25 THEN Visible = 0
-        IF Visible THEN
-            COLOR 14
-            _PRINTSTRING (Enemies(id).Position_X, Enemies(id).Position_Y), CHR$(17)
+    ERASE ScreenMap
+    'any bonus?
+    IF Bonus.Active = -1 THEN
+        IF Bonus.Color = -1 THEN
+            'Random colors
+            COLOR _CEIL(RND * 14) + 1
+        ELSE
+            COLOR Bonus.Color
         END IF
+        x = 1
+        y = 1
+        c = 1
+        DO
+            IF Bonus.X + (x - 1) > 0 AND Bonus.X + (x - 1) <= 80 THEN 'Visible?
+                Char$ = MID$(Bonus.Shape$, c, 1)
+                IF Char$ = " " THEN Char$ = ""
+                _PRINTSTRING (Bonus.X + x - 1, Bonus.Y + y - 1), Char$
+                IF Char$ <> CHR$(32) THEN ScreenMap(Bonus.X + x - 1, Bonus.Y + y - 1) = ScreenMap.Bonus
+            END IF
+            c = c + 1
+            IF c > LEN(Bonus.Shape$) THEN EXIT DO 'Incomplete shape
+            x = x + 1
+            IF x > Bonus.Width THEN x = 1: y = y + 1
+            IF y > Bonus.Height THEN EXIT DO
+        LOOP
+    END IF
+
+    IF GetTICKS - LastBonusUpdate# > Bonus.Speed# AND Pause = 0 AND Alive = -1 THEN
+        LastBonusUpdate# = GetTICKS
+        Bonus.X = Bonus.X - 1
+        IF Bonus.X + Bonus.Width < 0 THEN Bonus.Active = 0
+    END IF
+
+    'enemies too
+    FOR id = 1 TO MaxEnemies
+        IF Enemies(id).Color = -1 THEN
+            COLOR _CEIL(RND * 14) + 1
+        ELSE
+            COLOR Enemies(id).Color
+        END IF
+        x = 1
+        y = 1
+        c = 1
+        DO
+        IF Enemies(id).X + (x - 1) > 0 AND Enemies(id).X + (x - 1) <= 80 AND _
+            Enemies(id).Y + (y - 1) > 1 AND Enemies(id).Y + (y - 1) <= 25 THEN 'Visible?
+                Char$ = MID$(Enemies(id).Shape, c, 1)
+                IF Char$ = " " THEN Char$ = ""
+                _PRINTSTRING (Enemies(id).X + x - 1, Enemies(id).Y + y - 1), Char$
+                IF Char$ <> CHR$(32) THEN ScreenMap(Enemies(id).X + x - 1, Enemies(id).Y + y - 1) = -id
+            END IF
+            c = c + 1
+            x = x + 1
+            IF x > Enemies(id).Width THEN x = 1: y = y + 1
+            IF y > Enemies(id).Height THEN EXIT DO
+        LOOP
+
     NEXT
+END SUB
+
+SUB PlaySound (Handle&)
+    IF Mute THEN EXIT SUB
+    IF Handle <> 0 THEN _SNDPLAYCOPY Handle&
+END SUB
+
+
+SUB SetLevel (Which)
+    SHARED StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
+    SHARED MaxEnemies AS INTEGER, ShowLevelName#
+    SHARED LevelName$, LevelDuration#, LevelStart#
+    SHARED LevelTips$, LevelTips.Position
+
+    TotalLevels = 3
+    Recharge = -1
+
+    SELECT CASE Which
+        CASE 1
+            StarFieldSpeed = .1
+            EnemiesSpeed = .08
+            IF MaxEnemies = 0 THEN MaxEnemies = 10
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Level
+            NEXT
+            MaxEnemies = 10
+            Level = Which
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Level
+            NEXT
+            LevelName$ = " LET THERE BE WAR! "
+            LevelTips$ = CHR$(0) + "BASE:BEST OF LUCK, CAPTAIN."
+            LevelTips$ = LevelTips$ + CHR$(0) + "BASE:I SEE TEN OF THEM ON THE RADAR"
+            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:IT'S FUNNY... THEIR MOVEMENT|SEEMS RANDOM AT TIMES"
+            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:SOMETIMES I CAN ALMOST|BELIEVE THEY'RE COORDINATED"
+            LevelTips.Position = 1
+            ShowLevelName# = GetTICKS
+            LevelDuration# = 60
+            LevelStart# = GetTICKS
+        CASE 2
+            StarFieldSpeed = .15
+            EnemiesSpeed = .1
+            LevelName$ = " LOOKING FOR FLYING SAUCERS IN THE SKY "
+            LevelTips$ = CHR$(0) + "BASE:WATCH OUT, CAPTAIN!|WE DON'T KNOW WHAT THEY CAN DO."
+            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:I CAN'T AFFORD A DAMAGED UNIT NOW"
+            LevelTips.Position = 1
+            ShowLevelName# = GetTICKS
+            LevelDuration# = 30
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Level
+            NEXT
+            Level = Which
+            PrevLevelMaxEnemies = MaxEnemies
+            MaxEnemies = 10
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Level
+            NEXT
+            LevelStart# = GetTICKS
+        CASE 3
+            StarFieldSpeed = .15
+            EnemiesSpeed = .1
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Level
+            NEXT
+            Level = Which
+            LevelName$ = " SPACE KAMIKAZE "
+            LevelTips$ = CHR$(0) + "BASE:THIS IS MADNESS!"
+            LevelTips$ = LevelTips$ + CHR$(0) + "BASE:THESE PILOTS AREN'T AFRAID OF DYING"
+            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:I MUST NOT USE ALL MY SHIP'S ENERGY"
+            LevelTips.Position = 1
+            ShowLevelName# = GetTICKS
+            LevelDuration# = 45
+            PrevLevelMaxEnemies = MaxEnemies
+            MaxEnemies = 10
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Level
+            NEXT
+            LevelStart# = GetTICKS
+        CASE ELSE
+            Level = 1
+            SetLevel Level
+    END SELECT
+END SUB
+
+FUNCTION GetTICKS#
+    GetTICKS# = (GetUptime / 1000)
+END FUNCTION
+
+SUB KillEnemy (id, Strength)
+    Enemies(id).Hits = Enemies(id).Hits - Strength
+    Enemies(id).X = Enemies(id).X + 3
+    CreateEnemy id, Level
 END SUB
 
