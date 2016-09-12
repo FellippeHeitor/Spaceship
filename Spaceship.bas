@@ -7,11 +7,16 @@ DECLARE LIBRARY
     FUNCTION GetUptime ALIAS GetTicks
 END DECLARE
 
-$EXEICON:'ship.ico'
+$EXEICON:'.\ship.ico'
 _ICON
 _SCREENMOVE _MIDDLE
 _TITLE "Spaceship"
 DEFLNG A-Z
+
+DIM SONG(1 TO 3) AS LONG
+Path$ = "Audio\"
+SONG(1) = _SNDOPEN(Path$ + "levelintro.ogg", "SYNC,PAUSE")
+IF SONG(1) THEN _SNDLOOP SONG(1)
 
 ' declare constants and types
 CONST MaxStars = 15
@@ -26,6 +31,9 @@ TYPE ObjectsTYPE
     Width AS INTEGER
     Height AS INTEGER
     Color AS INTEGER
+    ColorPattern AS STRING * 256
+    ColorSteps AS INTEGER
+    CurrentColorStep AS INTEGER
     Shape AS STRING * 256
     Points AS INTEGER
     Hits AS INTEGER
@@ -42,14 +50,16 @@ END TYPE
 
 'Variable declaration
 DIM i, StartTime#, x, Found AS _BYTE, a$, TotalControllers AS INTEGER
-DIM ReturnedButton$, SavedDevice%, Dummy, Path$
+DIM ReturnedButton$, SavedDevice%, Dummy
 DIM SHARED GetButton.NotFound AS _BYTE, GetButton.Found AS _BYTE, GetButton.Multiple AS _BYTE
 
 DIM x AS INTEGER, y AS INTEGER
 DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS _BYTE
+DIM SHARED GoalAchieved AS _BYTE, ChapterGoal AS INTEGER
+DIM SHARED KilledEnemies AS INTEGER, Countdown#
 DIM Collision AS _BYTE
 DIM row AS SINGLE, RoundRow AS INTEGER
-DIM StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
+DIM BackupStarFieldSpeed AS DOUBLE, StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
 DIM ShieldImages(1 TO 10) AS LONG
 DIM SmokeImages(1 TO 3) AS LONG
 DIM ShieldInitiated#, LastShieldImage AS INTEGER
@@ -58,15 +68,17 @@ DIM SHARED MaxEnemies AS INTEGER
 DIM SHARED Starfield(MaxStars) AS ObjectsTYPE
 DIM SHARED Enemies(200) AS ObjectsTYPE
 DIM SHARED Beams(max_beams) AS ObjectsTYPE
-DIM SHARED Level, Energy AS SINGLE
-DIM ShieldCanvas, c, Boom$, ShipChar$
+DIM SHARED Chapter, Energy AS SINGLE, Level
+DIM ShieldCanvas, c, Boom$
 DIM CarefulMessage#, EnergyWarning#
 DIM Points, Lives AS INTEGER, EnergyBars AS INTEGER
 DIM SHARED Recharge AS _BYTE, Alive AS _BYTE, ShipSize AS _BYTE
-DIM SHARED PrevLevelMaxEnemies AS INTEGER
 DIM UpperLimit AS INTEGER, LowerLimit AS INTEGER, LeftLimit AS INTEGER
-DIM ShipColor AS INTEGER, k$, Pause AS _BYTE
-DIM Shield AS _BYTE, LastRecharge#, LastPause#
+DIM SHARED ShipColor AS INTEGER
+DIM k$
+DIM SHARED Pause AS _BYTE
+DIM Shield AS _BYTE, LastRecharge#
+DIM SHARED LastPause#, PauseOffset#
 DIM Stars AS _BYTE, id AS INTEGER, RechargeTime#
 DIM move_stars_Last#, move_enemies_Last#
 DIM LastEngineEnergy#, prevX AS INTEGER, prevY AS INTEGER
@@ -266,7 +278,7 @@ Dummy = GetButton("", MyDevices(ChosenController).ID)
 RANDOMIZE TIMER
 
 'Load audio
-Path$ = "SpaceshipAudio\"
+PRINT "LOADING AUDIO..."
 
 DIM SNDCatchEnergy, SNDFullRecharge, SNDShieldAPPEAR, SNDShieldON
 DIM SNDLaser1, SNDLaser2, SNDShipDamage, SNDShipGrow, SNDEnergyUP
@@ -287,7 +299,11 @@ SNDEnergyUP = _SNDOPEN(Path$ + "EnergyUP.wav", "SYNC")
 SNDExplosion = _SNDOPEN(Path$ + "Explosion1.wav", "SYNC")
 SNDOutOfEnergy = _SNDOPEN(Path$ + "OutOfEnergy.wav", "SYNC")
 SNDExtraLife = _SNDOPEN(Path$ + "ExtraLife.wav", "SYNC")
+SONG(2) = _SNDOPEN(Path$ + "bossfight.ogg", "SYNC,PAUSE")
+SONG(3) = _SNDOPEN(Path$ + "level1.ogg", "SYNC,PAUSE")
 
+IF SONG(1) THEN _SNDSTOP SONG(1)
+IF SONG(3) <> 0 THEN _SNDLOOP SONG(3)
 
 'Generate smoke images --------------------------------------------
 SmokeCanvas = _NEWIMAGE(3 * _FONTWIDTH, _FONTHEIGHT, 32)
@@ -326,12 +342,25 @@ NEXT c
 _FREEIMAGE ShieldCanvas
 _DEST 0
 
+'Generate "life bar" image ------------------------------------------
+LifeBarCanvas = _NEWIMAGE(80 * _FONTWIDTH, _FONTHEIGHT, 32)
+_DEST LifeBarCanvas
+FOR i = 1 TO 80
+    COLOR _RGBA32(255, 0, 0, (150 * (i / 80)) + 105)
+    _PRINTSTRING (i * _FONTWIDTH - _FONTWIDTH, 0), CHR$(219)
+NEXT
+LifeBarImage = _COPYIMAGE(LifeBarCanvas, 33)
+_FREEIMAGE LifeBarCanvas
+_DEST 0
+
 _DISPLAYORDER _HARDWARE , _SOFTWARE
 
 Boom$ = CHR$(219) + CHR$(178) + CHR$(177) + CHR$(176) + CHR$(15) + CHR$(7) + CHR$(249) + CHR$(250)
-ShipChar$ = CHR$(219) + CHR$(220) + CHR$(223)
+
+CONST Acceleration = .005
 
 RestartGame:
+ERASE Enemies
 _PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
 _PALETTECOLOR 1, _RGB32(55, 55, 55)
 CarefulMessage# = -1.5
@@ -346,11 +375,14 @@ Lives = 3
 Energy = 0
 EnergyBars = 0
 Recharge = -1
-SetLevel 1
+Level = 1
+Chapter = 1
+SetLevel Chapter
 Alive = -1
 ShipSize = 2: UpperLimit = 6: LowerLimit = 47: LeftLimit = 5
 InitialSetup = -1
 ShipColor = 14
+StarFieldSpeed = .08
 
 'Wait until all buttons are released:
 DO
@@ -358,29 +390,53 @@ LOOP UNTIL GetButton("", 0) = GetButton.NotFound
 
 DO
     k$ = INKEY$
-    IF k$ = CHR$(27) THEN EXIT DO
+    IF k$ = CHR$(27) THEN EscExit = -1: EXIT DO
     IF UCASE$(k$) = "M" THEN Mute = NOT Mute
-    IF UCASE$(k$) = "L" THEN PlaySound SNDFullRecharge: SetLevel Level + 1
+    IF Mute THEN
+        IF NOT Pause THEN
+            IF _SNDPLAYING(SONG(Level + 2)) THEN _SNDPAUSE SONG(Level + 2)
+        END IF
+    ELSE
+        IF NOT Pause AND NOT _SNDPLAYING(SONG(Level + 2)) THEN
+            IF SONG(Level + 2) THEN _SNDLOOP SONG(Level + 2)
+        END IF
+    END IF
+    IF UCASE$(k$) = "L" THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
 
     'Grab _BUTTON states using custom function GetButton:
     IF Pause = 0 AND Alive = -1 AND Recharge = 0 THEN
         IF GetButton("UP", 0) THEN IF Energy AND y > UpperLimit THEN y = y - 1: Energy = Energy - .001
         IF GetButton("DOWN", 0) THEN IF Energy AND y < LowerLimit THEN y = y + 1: Energy = Energy - .001
-        IF GetButton("LEFT", 0) THEN IF Energy AND x > LeftLimit THEN x = x - 1: Energy = Energy - .001
-        IF GetButton("RIGHT", 0) THEN IF Energy AND x < 80 THEN x = x + 1: Energy = Energy - .001
+        IF GetButton("LEFT", 0) THEN
+            IF Energy AND x > LeftLimit THEN x = x - 1: Energy = Energy - .001
+            MovingLeft = -1
+        ELSE
+            MovingLeft = 0
+        END IF
+
+        IF GetButton("RIGHT", 0) THEN
+            IF Energy AND x < 80 THEN x = x + 1: Energy = Energy - .001
+            MovingRight = -1
+        ELSE
+            MovingRight = 0
+        END IF
 
         IF GetButton("FIRE", 0) THEN GOSUB ShotsFired
     END IF
 
-    IF GetButton("START", 0) AND GetTICKS - LastPause# > .2 THEN
-        LastPause# = GetTICKS
+    IF GetButton("START", 0) AND (GetUptime / 1000) - LastPause# > .3 THEN
         Pause = NOT Pause
         IF Pause THEN
-            TIMER(TickTimer%) OFF
-            'RemainingLevelTime# = LevelDuration# - (GetTICKS - LevelStart#)
+            LastPause# = (GetUptime / 1000)
+            IF _SNDPLAYING(SONG(Level + 2)) THEN
+                IF SONG(Level + 2) THEN _SNDPAUSE SONG(Level + 2)
+            END IF
         ELSE
-            TIMER(TickTimer%) ON
-            'LevelStart# = GetTICKS - (LevelDuration# - RemainingLevelTime#)
+            PauseOffset# = PauseOffset# + ((GetUptime / 1000) - LastPause#)
+            LastPause# = (GetUptime / 1000)
+            IF NOT Mute THEN
+                IF SONG(Level + 2) THEN _SNDPLAY SONG(Level + 2)
+            END IF
         END IF
     END IF
 
@@ -389,6 +445,8 @@ DO
     COLOR , 0
     'Star field ------------------------------------------------------
     IF Recharge THEN
+        StarFieldSpeed = StarFieldSpeed - Acceleration
+        IF StarFieldSpeed < 0 THEN StarFieldSpeed = 0
         IF Stars = 0 THEN
             PlaySound SNDFullRecharge
             Stars = -1
@@ -403,6 +461,14 @@ DO
             IF InitialSetup THEN x = x + 1
         END IF
         IF Energy >= 100 THEN Recharge = 0: InitialSetup = 0
+    ELSE
+        IF MovingRight THEN
+            StarFieldSpeed = StarFieldSpeed - Acceleration
+            IF StarFieldSpeed < 0 THEN StarFieldSpeed = 0
+        ELSE
+            StarFieldSpeed = StarFieldSpeed + Acceleration
+            IF StarFieldSpeed > BackupStarFieldSpeed THEN StarFieldSpeed = BackupStarFieldSpeed
+        END IF
     END IF
 
     IF GetTICKS - move_stars_Last# > StarFieldSpeed AND Pause = 0 AND Alive = -1 AND Energy > 0 THEN
@@ -417,6 +483,9 @@ DO
                 CreateStar id, -1
             END IF
         NEXT
+
+        ''Ship goes back if intentionally moving forward:
+        'IF x > LeftLimit AND MovingRight = 0 AND MovingLeft = 0 THEN x = x - 1
     END IF
 
     IF GetTICKS - move_enemies_Last# > EnemiesSpeed AND Pause = 0 AND Alive = -1 AND Recharge = 0 THEN
@@ -433,6 +502,7 @@ DO
                 END IF
                 Enemies(id).CurrentMoveStep = Enemies(id).CurrentMoveStep MOD Enemies(id).MoveSteps + 1
                 Enemies(id).Y = Enemies(id).Y + MoveY
+                IF MoveY THEN Enemies(id).X = Enemies(id).X - 1
 
                 IF Enemies(id).CanReverse THEN
                     'Enemies that reach a screen boundary will have their
@@ -454,7 +524,7 @@ DO
                     Enemies(id).Y + Enemies(id).Height < 2 OR _
                     Enemies(id).Y > 25 THEN
                     Enemies(id).Hits = 0
-                    CreateEnemy id, Level
+                    CreateEnemy id, Chapter
                 END IF
             END IF
         NEXT
@@ -548,6 +618,7 @@ DO
                             'so we'll throw it out the screen:
                             Beams(i).X = 81
                             Points = Points + Enemies(CheckEnemy).Points
+                            PointGoesUp! = 0: LastEarnedPoints = Enemies(CheckEnemy).Points
                             PlaySound SNDExplosion
                         ELSEIF ScreenMap(Beams(i).X + l, Beams(i).Y) = ScreenMap.Bonus THEN
                             Boom.X = Beams(i).X + l
@@ -559,6 +630,7 @@ DO
                             'so we'll throw it out the screen:
                             Beams(i).X = 81
                             Points = Points + 50
+                            PointGoesUp! = 0: LastEarnedPoints = 50
                             PlaySound SNDExplosion
                         END IF
                     END IF
@@ -671,14 +743,15 @@ DO
                         PlaySound SNDExtraLife
                     END IF
                 CASE "ENERGY"
-                    'IF EnergyBars < 3 THEN
-                    '    EnergyBars = EnergyBars + 1
-                    '    PlaySound SNDCatchEnergy
-                    '    Bonus.Active = 0
-                    'END IF
-                    PlaySound SNDEnergyUP
-                    Bonus.Active = 0
-                    Energy = Energy + 20
+                    IF Bonus.Color = 10 THEN
+                        IF GetTICKS - LastEnergyUP# > .2 THEN
+                            LastEnergyUP# = GetTICKS
+                            PlaySound SNDEnergyUP
+                            Energy = Energy + 5
+
+                            IF Energy >= 100 THEN Bonus.Color = 8
+                        END IF
+                    END IF
                 CASE "SHIELD"
                     PlaySound SNDShieldON
                     ShieldColorIndex = 1
@@ -695,6 +768,7 @@ DO
             CheckEnemy = -Collision
             'Death by enemy (or severe damage)
             Points = Points + Enemies(CheckEnemy).Points
+            PointGoesUp! = 0: LastEarnedPoints = Enemies(CheckEnemy).Points
             IF ShipSize = 1 THEN
                 PlaySound SNDExplosion
                 Bonus.Active = 0
@@ -749,8 +823,8 @@ DO
             CASE IS < 30: LastShieldImage = 3
         END SELECT
 
-        IF GetTICKS - LastShieldColor# > .05 THEN
-            LastShieldColor# = GetTICKS
+        IF (GetUptime / 1000) - LastShieldColor# > .05 THEN
+            LastShieldColor# = (GetUptime / 1000)
             ShieldColorIndex = ShieldColorIndex + 1
             IF ShieldColorIndex > LastShieldImage THEN ShieldColorIndex = 1
         END IF
@@ -777,7 +851,7 @@ DO
     END IF
 
     IF Pause THEN
-        COLOR 15, 0
+        COLOR 15, 1
         PauseMessage$ = "    PAUSED     "
         _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
     END IF
@@ -849,6 +923,17 @@ DO
                     _PRINTSTRING (x, RoundRow), " "
         END SELECT
 
+        'Show earned points
+        PointGoesUp! = PointGoesUp! - .5
+        IF RoundRow + PointGoesUp! >= 2 AND RoundRow + PointGoesUp! <= 25 AND x >= 1 AND x <= 77 THEN
+            SELECT CASE ABS(INT(PointGoesUp!))
+                CASE 1 TO 2: COLOR 15
+                CASE 3: COLOR 7
+                CASE 4: COLOR 8
+            END SELECT
+            _PRINTSTRING (x, RoundRow + PointGoesUp!), LTRIM$(RTRIM$(STR$(LastEarnedPoints)))
+        END IF
+
         x = bx: y = by: row = brow!: RoundRow = _CEIL(row)
         IF EnemyExplosion THEN
             IF ExplosionAnimationStep = 8 THEN EnemyExplosion = 0
@@ -860,6 +945,7 @@ DO
                 Energy = 0
                 GOSUB UpdateStats
                 _DISPLAY
+                IF SONG(Level + 2) <> 0 THEN _SNDSTOP SONG(Level + 2)
                 _DELAY 1
                 LastShipGrow# = GetTICKS
                 Alive = -1
@@ -870,14 +956,10 @@ DO
                 Recharge = -1: InitialSetup = -1
                 FOR id = 1 TO MaxEnemies
                     Enemies(id).Hits = 0
-                    CreateEnemy id, Level
+                    CreateEnemy id, Chapter
                 NEXT
-                IF GetTICKS - LevelStart# > LevelDuration# / 2 THEN
-                    LevelStart# = GetTICKS - LevelDuration# / 2 'Back to midlevel
-                ELSE
-                    LevelStart# = GetTICKS 'Reset the current level
-                END IF
-                ShowLevelName# = GetTICKS
+                ShowChapterName# = GetTICKS
+                IF SONG(Level + 2) <> 0 THEN _SNDLOOP SONG(Level + 2)
                 x = 5
                 y = 25
             ELSE
@@ -888,7 +970,8 @@ DO
     END IF
 
     IF Pause = 0 AND Alive = -1 THEN
-        IF GetTICKS - LevelStart# > LevelDuration# THEN PlaySound SNDFullRecharge: SetLevel Level + 1
+        IF GoalAchieved THEN Countdown# = GetTICKS: GoalAchieved = 0
+        IF Countdown# > 0 AND GetTICKS - Countdown# > 10 THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
     END IF
 
     _DISPLAY
@@ -950,56 +1033,61 @@ IF Energy > 100 THEN Energy = 100
 IF INT(Energy) <= 0 THEN Energy = 0
 IF Mute THEN COLOR 0, 7: _PRINTSTRING (20, 1), " MUTE ": COLOR , 1
 
+'_PRINTSTRING (30, 25), " PAUSE OFFSET:" + STR$(PauseOffset#) + " "
+
 COLOR 15
-TimeRemaining# = LevelDuration# - (GetTICKS - LevelStart#)
-IF TimeRemaining# > 0 AND TimeRemaining# <= 10 AND Pause = 0 THEN
-    _PRINTSTRING (60, 25), " NEXT MISSION IN" + STR$(INT(TimeRemaining#)) + " "
-END IF
-
-COLOR 2
-_PRINTSTRING (69 - EnergyBars, 1), STRING$(EnergyBars, 22)
-EnergyStat$ = STRING$(Energy / 10, 254)
-EnergyStat$ = EnergyStat$ + STRING$(10 - LEN(EnergyStat$), 249)
-
-IF GetTICKS - ShowLevelName# < 2 THEN
-    COLOR 0, 7
-    PauseMessage$ = " Chapter" + STR$(Level) + " "
-    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2 - 1), PauseMessage$
-    _PRINTSTRING (_WIDTH \ 2 - LEN(LevelName$) \ 2, _HEIGHT \ 2), LevelName$
+TimeRemaining# = GetTICKS - Countdown#
+IF Countdown# > 0 AND TimeRemaining# > 0 AND TimeRemaining# <= 10 THEN
+    _PRINTSTRING (60, 25), " NEXT MISSION IN" + STR$(INT(10 - TimeRemaining#)) + " "
 ELSE
-    IF GetTICKS - LastTipUpdate# > 15 THEN
-        LastTipUpdate# = GetTICKS
-        LastTipShown# = GetTICKS
-        IF LevelTips.Position > 0 THEN
-            Start.Position = LevelTips.Position + 1
-            LevelTips.Position = INSTR(Start.Position, LevelTips$, CHR$(0))
-            IF LevelTips.Position > 0 THEN
-                NextTip$ = MID$(LevelTips$, Start.Position, LevelTips.Position - Start.Position)
-            ELSE
-                NextTip$ = MID$(LevelTips$, Start.Position)
-            END IF
-            PlaySound SNDIntercom
+    IF GetTICKS - ShowChapterName# < 2 THEN
+        COLOR 15, 1
+        PauseMessage$ = " Chapter" + STR$(Chapter) + " "
+        _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2 - 1), PauseMessage$
+        Pipe = INSTR(ChapterName$, "|")
+        IF Pipe = 0 THEN
+            _PRINTSTRING (_WIDTH \ 2 - LEN(ChapterName$) \ 2, _HEIGHT \ 2), ChapterName$
         ELSE
-            NextTip$ = ""
+            SecondLine$ = LEFT$(ChapterName$, Pipe - 1) + " "
+            ThirdLine$ = " " + MID$(ChapterName$, Pipe + 1)
+            _PRINTSTRING (_WIDTH \ 2 - LEN(SecondLine$) \ 2, _HEIGHT \ 2), SecondLine$
+            _PRINTSTRING (_WIDTH \ 2 - LEN(ThirdLine$) \ 2, _HEIGHT \ 2 + 1), ThirdLine$
         END IF
-    END IF
-
-    IF GetTICKS - LastTipShown# < 5 THEN
-        IF LEN(NextTip$) THEN
-            ThirdLine$ = ""
-            Colon = INSTR(NextTip$, ":")
-            Pipe = INSTR(NextTip$, "|")
-            IF Pipe THEN
-                SecondLine$ = MID$(NextTip$, Colon + 1, Pipe - Colon)
-                ThirdLine$ = MID$(NextTip$, INSTR(NextTip$, "|") + 1)
+    ELSE
+        IF GetTICKS - LastTipUpdate# > 15 THEN
+            LastTipUpdate# = GetTICKS
+            LastTipShown# = GetTICKS
+            IF ChapterTips.Position > 0 THEN
+                Start.Position = ChapterTips.Position + 1
+                ChapterTips.Position = INSTR(Start.Position, ChapterTips$, CHR$(0))
+                IF ChapterTips.Position > 0 THEN
+                    NextTip$ = MID$(ChapterTips$, Start.Position, ChapterTips.Position - Start.Position)
+                ELSE
+                    NextTip$ = MID$(ChapterTips$, Start.Position)
+                END IF
+                PlaySound SNDIntercom
             ELSE
-                SecondLine$ = MID$(NextTip$, Colon + 1)
+                NextTip$ = ""
             END IF
-            COLOR 0, 7
-            _PRINTSTRING (1, 22), " " + LEFT$(NextTip$, INSTR(NextTip$, ":")) + " "
-            _PRINTSTRING (1, 23), " " + SecondLine$ + " "
-            IF Pipe THEN
-                _PRINTSTRING (1, 24), " " + ThirdLine$ + " "
+        END IF
+
+        IF GetTICKS - LastTipShown# < 5 THEN
+            IF LEN(NextTip$) THEN
+                ThirdLine$ = ""
+                Colon = INSTR(NextTip$, ":")
+                Pipe = INSTR(NextTip$, "|")
+                IF Pipe THEN
+                    SecondLine$ = MID$(NextTip$, Colon + 1, Pipe - Colon)
+                    ThirdLine$ = MID$(NextTip$, Pipe + 1)
+                ELSE
+                    SecondLine$ = MID$(NextTip$, Colon + 1)
+                END IF
+                COLOR 15, 1
+                _PRINTSTRING (1, 22), " " + LEFT$(NextTip$, Colon) + " "
+                _PRINTSTRING (1, 23), " " + SecondLine$ + " "
+                IF Pipe THEN
+                    _PRINTSTRING (1, 24), " " + ThirdLine$ + " "
+                END IF
             END IF
         END IF
     END IF
@@ -1025,21 +1113,35 @@ IF Energy <= 10 AND Alive = -1 AND Recharge = 0 THEN
         EnergyWarning# = GetTICKS
         EnergyWarningText = NOT EnergyWarningText
         IF EnergyWarningText THEN
-            PauseMessage$ = " LOW RESOURCES "
+            WarningMessage$ = " LOW RESOURCES "
         ELSE
-            PauseMessage$ = "    DANGER!    "
+            WarningMessage$ = "    DANGER!    "
         END IF
     END IF
-    _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, 1), PauseMessage$
+    _PRINTSTRING (_WIDTH \ 2 - LEN(WarningMessage$) \ 2, 1), WarningMessage$
 END IF
 
+EnergyStat$ = STRING$(Energy / 10, 254)
+EnergyStat$ = EnergyStat$ + STRING$(10 - LEN(EnergyStat$), 249)
 SELECT CASE Energy
     CASE 0 TO 10: COLOR 28, 1
     CASE 11 TO 30: COLOR 12, 1
     CASE 31 TO 60: COLOR 14, 1
     CASE 61 TO 100: COLOR 10, 1
 END SELECT
+IF GetTICKS - LastEnergyUP# <= .2 THEN
+    IF EnergyBlinkColor = 10 THEN EnergyBlinkColor = 9 ELSE EnergyBlinkColor = 10
+    COLOR EnergyBlinkColor
+END IF
 _PRINTSTRING (70, 1), EnergyStat$
+
+IF KilledEnemies < ChapterGoal THEN
+    '_PRINTSTRING (30, 1), STR$(KilledEnemies) + "/" + STR$(ChapterGoal)
+    'EnemiesLeft$ = STRING$((KilledEnemies / ChapterGoal) * 80, 219)
+    'COLOR 4
+    '_PRINTSTRING (1, 25), EnemiesLeft$
+    _PUTIMAGE (0, 24 * _FONTHEIGHT), LifeBarImage, 0, (0, 0)-STEP((KilledEnemies / ChapterGoal) * (80 * _FONTWIDTH), _FONTHEIGHT)
+END IF
 
 COLOR , 0
 RETURN
@@ -1190,11 +1292,11 @@ SUB ReverseEnemyPattern (id)
     NEXT i
 END SUB
 
-SUB CreateEnemy (id, Level)
+SUB CreateEnemy (id, Chapter)
     SHARED Energy AS SINGLE, RoundRow AS INTEGER
     DIM a AS _BYTE
     IF Bonus.Active = 0 THEN CreateBonus
-    SELECT CASE Level
+    SELECT CASE Chapter
         CASE 1
             IF Enemies(id).Hits <= 0 THEN
                 Enemies(id).X = 80 + _CEIL(RND * 80)
@@ -1240,7 +1342,14 @@ SUB CreateEnemy (id, Level)
             IF Enemies(id).Hits <= 0 THEN
                 Enemies(id).X = 80 + _CEIL(RND * 80)
                 Enemies(id).Y = _CEIL(RND * 24) + 1
-                Enemies(id).Color = -1
+                Enemies(id).Color = -2
+                DO
+                    RandomColor = _CEIL(RND * 8) + 7
+                LOOP WHILE RandomColor = ShipColor OR RandomColor = 8
+                m$ = MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(8) + MKI$(8) + MKI$(8) + MKI$(8) + MKI$(8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8) + MKI$(RandomColor - 8)
+                Enemies(id).ColorPattern = m$
+                Enemies(id).ColorSteps = LEN(m$) / 2
+                Enemies(id).CurrentColorStep = 1
                 Enemies(id).Points = 100
                 Enemies(id).RelativeSpeed = _CEIL(RND * 2)
                 Enemies(id).Hits = 2
@@ -1296,6 +1405,32 @@ SUB CreateEnemy (id, Level)
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
             END IF
+        CASE 4
+            IF Enemies(id).Hits <= 0 THEN
+                Enemies(id).X = 80 + _CEIL(RND * 20)
+                Enemies(id).Y = _CEIL(RND * 24) + 1
+                Enemies(id).Color = -2
+                m$ = MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(3) + MKI$(9) + MKI$(3) + MKI$(9) + MKI$(3)
+                Enemies(id).ColorPattern = m$
+                Enemies(id).ColorSteps = LEN(m$) / 2
+                Enemies(id).CurrentColorStep = 1
+                Enemies(id).Hits = 1
+                Enemies(id).Points = 50
+                Enemies(id).RelativeSpeed = 1
+                Enemies(id).Shape = CHR$(223) + CHR$(32) + CHR$(32) + CHR$(176) + CHR$(176) + CHR$(177) + CHR$(177) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(176) + CHR$(221) + CHR$(219) + CHR$(178) + CHR$(176) + CHR$(177) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(32) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(176) + CHR$(176) + CHR$(177) + CHR$(177) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(176)
+                Enemies(id).Width = 13
+                Enemies(id).Height = 3
+                'Some will go up, some will go down.
+                m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1)
+                Enemies(id).Chase = 0
+                Enemies(id).CanReverse = -1
+                Enemies(id).MovePattern = m$
+                IF Enemies(id).Y <= 12 THEN
+                    ReverseEnemyPattern id
+                END IF
+                Enemies(id).MoveSteps = LEN(m$) / 2
+                Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+            END IF
     END SELECT
 END SUB
 
@@ -1306,6 +1441,8 @@ SUB DrawElements
     DIM x AS INTEGER, y AS INTEGER, c AS INTEGER
     DIM id AS INTEGER, Char$
     SHARED Pause AS _BYTE, Alive AS _BYTE, Visible AS _BYTE
+    SHARED StarFieldSpeed AS DOUBLE, LastEnergyUP#
+    SHARED EnergyBlinkColor AS _BYTE
     STATIC LastBonusUpdate#
 
     'Stars
@@ -1315,7 +1452,9 @@ SUB DrawElements
         IF Starfield(id).Y < 1 OR Starfield(id).Y > 25 THEN Visible = 0
         IF Visible THEN
             COLOR Starfield(id).Color
-            _PRINTSTRING (Starfield(id).X, Starfield(id).Y), Starfield(id).Char
+            Char$ = Starfield(id).Char
+            IF StarFieldSpeed = 0 THEN Char$ = CHR$(196)
+            _PRINTSTRING (Starfield(id).X, Starfield(id).Y), Char$
         END IF
     NEXT
 
@@ -1325,6 +1464,9 @@ SUB DrawElements
         IF Bonus.Color = -1 THEN
             'Random colors
             COLOR _CEIL(RND * 14) + 1
+        ELSEIF (Bonus.Type$ = "ENERGY" AND GetTICKS - LastEnergyUP# <= .2) THEN
+            IF EnergyBlinkColor = 10 THEN EnergyBlinkColor = 9 ELSE EnergyBlinkColor = 10
+            COLOR EnergyBlinkColor
         ELSE
             COLOR Bonus.Color
         END IF
@@ -1354,8 +1496,12 @@ SUB DrawElements
 
     'enemies too
     FOR id = 1 TO MaxEnemies
+
         IF Enemies(id).Color = -1 THEN
             COLOR _CEIL(RND * 14) + 1
+        ELSEIF Enemies(id).Color = -2 THEN 'Custom color pattern
+            COLOR CVI(MID$(Enemies(id).ColorPattern, (Enemies(id).CurrentColorStep * 2) - 1, 2))
+            Enemies(id).CurrentColorStep = Enemies(id).CurrentColorStep MOD Enemies(id).ColorSteps + 1
         ELSE
             COLOR Enemies(id).Color
         END IF
@@ -1381,93 +1527,121 @@ END SUB
 
 SUB PlaySound (Handle&)
     IF Mute THEN EXIT SUB
-    IF Handle <> 0 THEN _SNDPLAYCOPY Handle&
+    IF Handle THEN _SNDPLAYCOPY Handle&
 END SUB
 
 
 SUB SetLevel (Which)
     SHARED StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
-    SHARED MaxEnemies AS INTEGER, ShowLevelName#
-    SHARED LevelName$, LevelDuration#, LevelStart#
-    SHARED LevelTips$, LevelTips.Position
+    SHARED BackupStarFieldSpeed AS DOUBLE
+    SHARED MaxEnemies AS INTEGER, ShowChapterName#
+    SHARED ChapterName$
+    SHARED ChapterTips$, ChapterTips.Position
 
-    TotalLevels = 3
+    TotalChapters = 3
     Recharge = -1
+    GoalAchieved = 0
+    KilledEnemies = 0
+    Countdown# = 0
 
     SELECT CASE Which
         CASE 1
-            StarFieldSpeed = .1
+            StarFieldSpeed = .08
             EnemiesSpeed = .08
             IF MaxEnemies = 0 THEN MaxEnemies = 10
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Level
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
             NEXT
             MaxEnemies = 10
-            Level = Which
+            Chapter = Which
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Level
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
             NEXT
-            LevelName$ = " LET THERE BE WAR! "
-            LevelTips$ = CHR$(0) + "BASE:BEST OF LUCK, CAPTAIN."
-            LevelTips$ = LevelTips$ + CHR$(0) + "BASE:I SEE TEN OF THEM ON THE RADAR"
-            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:IT'S FUNNY... THEIR MOVEMENT|SEEMS RANDOM AT TIMES"
-            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:SOMETIMES I CAN ALMOST|BELIEVE THEY'RE COORDINATED"
-            LevelTips.Position = 1
-            ShowLevelName# = GetTICKS
-            LevelDuration# = 60
-            LevelStart# = GetTICKS
+            ChapterName$ = " LET THERE BE WAR! "
+            ChapterTips$ = CHR$(0) + "BASE:BEST OF LUCK, CAPTAIN."
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "BASE:I SEE TEN OF THEM ON THE RADAR"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:IT'S FUNNY... THEIR MOVEMENT|SEEMS RANDOM AT TIMES"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:SOMETIMES I CAN ALMOST|BELIEVE THEY'RE COORDINATED"
+            ChapterTips.Position = 1
+            ShowChapterName# = GetTICKS
+            ChapterGoal = 50
         CASE 2
-            StarFieldSpeed = .15
+            StarFieldSpeed = .08
             EnemiesSpeed = .1
-            LevelName$ = " LOOKING FOR FLYING SAUCERS IN THE SKY "
-            LevelTips$ = CHR$(0) + "BASE:WATCH OUT, CAPTAIN!|WE DON'T KNOW WHAT THEY CAN DO."
-            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:I CAN'T AFFORD A DAMAGED UNIT NOW"
-            LevelTips.Position = 1
-            ShowLevelName# = GetTICKS
-            LevelDuration# = 30
+            ChapterName$ = " LOOKING FOR FLYING SAUCERS|IN THE SKY "
+            ChapterTips$ = CHR$(0) + "BASE:WATCH OUT, CAPTAIN!|WE DON'T KNOW WHAT THEY CAN DO."
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:I CAN'T AFFORD A DAMAGED UNIT NOW"
+            ChapterTips.Position = 1
+            ShowChapterName# = GetTICKS
+            ChapterGoal = 50
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Level
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
             NEXT
-            Level = Which
-            PrevLevelMaxEnemies = MaxEnemies
+            Chapter = Which
             MaxEnemies = 10
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Level
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
             NEXT
-            LevelStart# = GetTICKS
         CASE 3
-            StarFieldSpeed = .15
+            StarFieldSpeed = .08
             EnemiesSpeed = .1
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Level
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
             NEXT
-            Level = Which
-            LevelName$ = " SPACE KAMIKAZE "
-            LevelTips$ = CHR$(0) + "BASE:THIS IS MADNESS!"
-            LevelTips$ = LevelTips$ + CHR$(0) + "BASE:THESE PILOTS AREN'T AFRAID OF DYING"
-            LevelTips$ = LevelTips$ + CHR$(0) + "CAPTAIN:I MUST NOT USE ALL MY SHIP'S ENERGY"
-            LevelTips.Position = 1
-            ShowLevelName# = GetTICKS
-            LevelDuration# = 45
-            PrevLevelMaxEnemies = MaxEnemies
+            Chapter = Which
+            ChapterName$ = " SPACE KAMIKAZE "
+            ChapterTips$ = CHR$(0) + "BASE:THIS IS MADNESS!"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "BASE:THESE PILOTS AREN'T AFRAID OF DYING"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:I MUST NOT USE ALL MY SHIP'S ENERGY"
+            ChapterTips.Position = 1
+            ShowChapterName# = GetTICKS
+            ChapterGoal = 100
             MaxEnemies = 10
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Level
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
             NEXT
-            LevelStart# = GetTICKS
+        CASE 4
+            StarFieldSpeed = .08
+            EnemiesSpeed = .1
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
+            NEXT
+            Chapter = Which
+            ChapterName$ = " CHAPTER 4 NAME PLACEHOLDER "
+            ChapterTips$ = CHR$(0) + "BASE:THIS IS MADNESS!"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "BASE:THESE PILOTS AREN'T AFRAID OF DYING"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:I MUST NOT USE ALL MY SHIP'S ENERGY"
+            ChapterTips.Position = 1
+            ShowChapterName# = GetTICKS
+            ChapterGoal = 50
+            MaxEnemies = 10
+            FOR id = 1 TO MaxEnemies
+                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
+            NEXT
         CASE ELSE
-            Level = 1
-            SetLevel Level
+            Chapter = 1
+            SetLevel Chapter
     END SELECT
+
+    BackupStarFieldSpeed = StarFieldSpeed
 END SUB
 
 FUNCTION GetTICKS#
-    GetTICKS# = (GetUptime / 1000)
+    STATIC LastTICKS#
+
+    IF NOT Pause THEN
+        LastTICKS# = (GetUptime / 1000) - PauseOffset#
+    END IF
+
+    GetTICKS# = LastTICKS#
 END FUNCTION
 
 SUB KillEnemy (id, Strength)
     Enemies(id).Hits = Enemies(id).Hits - Strength
     Enemies(id).X = Enemies(id).X + 3
-    CreateEnemy id, Level
+    IF Enemies(id).Hits <= 0 THEN
+        KilledEnemies = KilledEnemies + 1
+        IF KilledEnemies = ChapterGoal THEN GoalAchieved = -1
+    END IF
+    CreateEnemy id, Chapter
 END SUB
-
