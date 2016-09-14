@@ -7,6 +7,8 @@ DECLARE LIBRARY
     FUNCTION GetUptime ALIAS GetTicks
 END DECLARE
 
+CONST godMode = 0
+
 $EXEICON:'.\ship.ico'
 _ICON
 _SCREENMOVE _MIDDLE
@@ -20,12 +22,15 @@ IF SONG(1) THEN _SNDLOOP SONG(1)
 
 ' declare constants and types
 CONST MaxStars = 15
-CONST max_beams = 10
+CONST MaxBeams = 10
+CONST MaxEnemyBeams = 10
 
 CONST ScreenMap.Bonus = 1
 CONST ScreenMap.Enemy = 2
+CONST ScreenMap.EnemyLaser = 3
 
 TYPE ObjectsTYPE
+    ID AS INTEGER
     X AS SINGLE
     Y AS INTEGER
     Width AS INTEGER
@@ -46,6 +51,7 @@ TYPE ObjectsTYPE
     CanReverse AS _BYTE
     Chase AS _BYTE
     CurrentMoveStep AS INTEGER
+    CanShoot AS _BYTE
 END TYPE
 
 'Variable declaration
@@ -54,12 +60,14 @@ DIM ReturnedButton$, SavedDevice%, Dummy
 DIM SHARED GetButton.NotFound AS _BYTE, GetButton.Found AS _BYTE, GetButton.Multiple AS _BYTE
 
 DIM x AS INTEGER, y AS INTEGER
-DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS _BYTE
+DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS DOUBLE
 DIM SHARED GoalAchieved AS _BYTE, ChapterGoal AS INTEGER
 DIM SHARED KilledEnemies AS INTEGER, Countdown#
+DIM SHARED WeKilledFirst AS _BYTE
 DIM Collision AS _BYTE
 DIM row AS SINGLE, RoundRow AS INTEGER
-DIM BackupStarFieldSpeed AS DOUBLE, StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
+DIM SHARED BackupStarFieldSpeed AS DOUBLE, StarFieldSpeed AS DOUBLE
+DIM SHARED EnemiesSpeed AS DOUBLE, BackupEnemiesSpeed AS DOUBLE
 DIM ShieldImages(1 TO 10) AS LONG
 DIM SmokeImages(1 TO 3) AS LONG
 DIM ShieldInitiated#, LastShieldImage AS INTEGER
@@ -67,7 +75,8 @@ DIM x(1 TO 8) AS INTEGER, y(1 TO 8) AS INTEGER
 DIM SHARED MaxEnemies AS INTEGER
 DIM SHARED Starfield(MaxStars) AS ObjectsTYPE
 DIM SHARED Enemies(200) AS ObjectsTYPE
-DIM SHARED Beams(max_beams) AS ObjectsTYPE
+DIM SHARED Beams(MaxBeams) AS ObjectsTYPE
+DIM SHARED EnemyBeams(MaxEnemyBeams) AS ObjectsTYPE
 DIM SHARED Chapter, Energy AS SINGLE, Level
 DIM ShieldCanvas, c, Boom$
 DIM CarefulMessage#, EnergyWarning#
@@ -90,6 +99,7 @@ DIM Boom.Y AS INTEGER, EnemyExplosion AS _BYTE
 DIM ExplosionAnimationStep AS _BYTE, l AS INTEGER
 DIM L1 AS _BYTE, L2 AS _BYTE, L3 AS _BYTE
 DIM NewBeam AS INTEGER, LastBeam#, EnergyStat$
+DIM LastEnemyBeam#
 DIM EnergyWarningText AS _BYTE
 DIM SHARED Mute AS _BYTE
 DIM SHARED UseKeyboard AS _BYTE
@@ -165,6 +175,7 @@ IF UseKeyboard = 0 THEN
         END IF
     NEXT i
 
+    IF godMode THEN ChosenController = 2: GOTO AssignKeys
     IF TotalControllers > 1 THEN
         'More than one controller found, user can choose which will be used
         '(though I highly suspect this bit will never be run)
@@ -278,7 +289,9 @@ Dummy = GetButton("", MyDevices(ChosenController).ID)
 RANDOMIZE TIMER
 
 'Load audio
-PRINT "LOADING AUDIO..."
+PRINT
+COLOR 15
+PRINT "LOADING AUDIO";: COLOR 31: PRINT "..."
 
 DIM SNDCatchEnergy, SNDFullRecharge, SNDShieldAPPEAR, SNDShieldON
 DIM SNDLaser1, SNDLaser2, SNDShipDamage, SNDShipGrow, SNDEnergyUP
@@ -358,6 +371,7 @@ _DISPLAYORDER _HARDWARE , _SOFTWARE
 Boom$ = CHR$(219) + CHR$(178) + CHR$(177) + CHR$(176) + CHR$(15) + CHR$(7) + CHR$(249) + CHR$(250)
 
 CONST Acceleration = .005
+CONST GraceTime = 2
 
 RestartGame:
 ERASE Enemies
@@ -383,6 +397,7 @@ ShipSize = 2: UpperLimit = 6: LowerLimit = 47: LeftLimit = 5
 InitialSetup = -1
 ShipColor = 14
 StarFieldSpeed = .08
+WeKilledFirst = 0
 
 'Wait until all buttons are released:
 DO
@@ -392,6 +407,7 @@ DO
     k$ = INKEY$
     IF k$ = CHR$(27) THEN EscExit = -1: EXIT DO
     IF UCASE$(k$) = "M" THEN Mute = NOT Mute
+    IF godMode AND UCASE$(k$) = "F" THEN Freeze = NOT Freeze
     IF Mute THEN
         IF NOT Pause THEN
             IF _SNDPLAYING(SONG(Level + 2)) THEN _SNDPAUSE SONG(Level + 2)
@@ -401,7 +417,7 @@ DO
             IF SONG(Level + 2) THEN _SNDLOOP SONG(Level + 2)
         END IF
     END IF
-    IF UCASE$(k$) = "L" THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
+    IF godMode AND UCASE$(k$) = "L" THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
 
     'Grab _BUTTON states using custom function GetButton:
     IF Pause = 0 AND Alive = -1 AND Recharge = 0 THEN
@@ -462,16 +478,20 @@ DO
         END IF
         IF Energy >= 100 THEN Recharge = 0: InitialSetup = 0
     ELSE
-        IF MovingRight THEN
+        IF MovingRight AND NOT Freeze THEN
             StarFieldSpeed = StarFieldSpeed - Acceleration
             IF StarFieldSpeed < 0 THEN StarFieldSpeed = 0
-        ELSE
+            'EnemiesSpeed = EnemiesSpeed - Acceleration
+            'IF EnemiesSpeed < 0 THEN EnemiesSpeed = 0
+        ELSEIF NOT Freeze THEN
             StarFieldSpeed = StarFieldSpeed + Acceleration
             IF StarFieldSpeed > BackupStarFieldSpeed THEN StarFieldSpeed = BackupStarFieldSpeed
+            'EnemiesSpeed = EnemiesSpeed + Acceleration
+            'IF EnemiesSpeed > BackupEnemiesSpeed THEN EnemiesSpeed = BackupEnemiesSpeed
         END IF
     END IF
 
-    IF GetTICKS - move_stars_Last# > StarFieldSpeed AND Pause = 0 AND Alive = -1 AND Energy > 0 THEN
+    IF GetTICKS - move_stars_Last# > StarFieldSpeed AND Pause = 0 AND Alive = -1 AND Energy > 0 AND Freeze = 0 THEN
         move_stars_Last# = GetTICKS
         'move stars in the starfield array
         FOR id = 1 TO MaxStars
@@ -484,11 +504,11 @@ DO
             END IF
         NEXT
 
-        ''Ship goes back if intentionally moving forward:
+        ''Ship goes back if not intentionally moving forward:
         'IF x > LeftLimit AND MovingRight = 0 AND MovingLeft = 0 THEN x = x - 1
     END IF
 
-    IF GetTICKS - move_enemies_Last# > EnemiesSpeed AND Pause = 0 AND Alive = -1 AND Recharge = 0 THEN
+    IF GetTICKS - move_enemies_Last# > EnemiesSpeed AND Pause = 0 AND Alive = -1 AND Recharge = 0 AND Freeze = 0 THEN
         move_enemies_Last# = GetTICKS
         'move enemies
         FOR id = 1 TO MaxEnemies
@@ -525,6 +545,17 @@ DO
                     Enemies(id).Y > 25 THEN
                     Enemies(id).Hits = 0
                     CreateEnemy id, Chapter
+                END IF
+
+                'Enemy shoots when aligned (or close to aligning) with hero:
+                '(Enemies only shoot if they've been attacked first)
+                IF Enemies(id).CanShoot AND WeKilledFirst THEN
+                    IF Enemies(id).X > x AND Enemies(id).X <= x + 30 THEN
+                        IF Enemies(id).Y >= INT(y / 2) - 3 AND Enemies(id).Y <= INT(y / 2) + 3 THEN
+                            ShootingID = id
+                            GOSUB EnemyShotsFired
+                        END IF
+                    END IF
                 END IF
             END IF
         NEXT
@@ -597,16 +628,45 @@ DO
         END IF
     END IF
 
+    'Enemies' lasers:
+    IF Alive = -1 AND Recharge = 0 AND Pause = 0 THEN
+        FOR i = 1 TO MaxEnemyBeams
+            IF GetTICKS - EnemyBeams(i).StartTime < .8 OR Freeze THEN 'Enemy laser beams last for .8 seconds
+                l = 0
+                FOR l = 0 TO EnemyBeams(i).Size
+                    IF EnemyBeams(i).X + l <= 80 THEN
+                        IF Enemies(EnemyBeams(i).ID).Color = -1 THEN
+                            COLOR _CEIL(RND * 14) + 1
+                        ELSEIF Enemies(EnemyBeams(i).ID).Color = -2 THEN 'Custom color pattern
+                            COLOR CVI(MID$(Enemies(EnemyBeams(i).ID).ColorPattern, (Enemies(EnemyBeams(i).ID).CurrentColorStep * 2) - 1, 2))
+                        ELSE
+                            COLOR Enemies(EnemyBeams(i).ID).Color
+                        END IF
+                        IF GetTICKS - EnemyBeams(i).StartTime > .5 THEN COLOR 1
+                        IF EnemyBeams(i).X + l > 0 AND EnemyBeams(i).Y >= 2 AND EnemyBeams(i).Y <= 25 THEN
+                            _PRINTSTRING (EnemyBeams(i).X + l, EnemyBeams(i).Y), EnemyBeams(i).Char
+                            ScreenMap(EnemyBeams(i).X + l, EnemyBeams(i).Y) = ScreenMap.EnemyLaser + (i / 100)
+                        END IF
+                    END IF
+                NEXT l
+                IF NOT Freeze THEN EnemyBeams(i).X = EnemyBeams(i).X - 1
+            ELSE
+                IF NOT Freeze THEN EnemyBeams(i).X = -EnemyBeams(i).Size 'Invalidate this beam so a new one can be generated
+            END IF
+        NEXT i
+    END IF
+
     'Front lasers:
     IF Alive = -1 AND Recharge = 0 AND Pause = 0 THEN
-        FOR i = 1 TO max_beams
+        FOR i = 1 TO MaxBeams
             IF GetTICKS - Beams(i).StartTime < .8 THEN 'Laser beams last for .8 seconds
                 FOR l = 0 TO Beams(i).Size - 1
                     IF Beams(i).X + l <= 80 THEN
                         COLOR ShipColor - 8
                         IF GetTICKS - Beams(i).StartTime > .5 THEN COLOR 1
                         _PRINTSTRING (Beams(i).X + l, Beams(i).Y), Beams(i).Char
-                        IF ScreenMap(Beams(i).X + l, Beams(i).Y) < 0 THEN
+                        ThisPoint = FIX(ScreenMap(Beams(i).X + l, Beams(i).Y))
+                        IF ThisPoint < 0 THEN
                             CheckEnemy = -ScreenMap(Beams(i).X + l, Beams(i).Y)
                             'Killed an enemy
                             Boom.X = Enemies(CheckEnemy).X
@@ -620,7 +680,7 @@ DO
                             Points = Points + Enemies(CheckEnemy).Points
                             PointGoesUp! = 0: LastEarnedPoints = Enemies(CheckEnemy).Points
                             PlaySound SNDExplosion
-                        ELSEIF ScreenMap(Beams(i).X + l, Beams(i).Y) = ScreenMap.Bonus THEN
+                        ELSEIF ThisPoint = ScreenMap.Bonus THEN
                             Boom.X = Beams(i).X + l
                             Boom.Y = Beams(i).Y * 2
                             EnemyExplosion = -1
@@ -632,6 +692,10 @@ DO
                             Points = Points + 50
                             PointGoesUp! = 0: LastEarnedPoints = 50
                             PlaySound SNDExplosion
+                        ELSEIF ThisPoint = ScreenMap.EnemyLaser THEN
+                            ThisEnemyBeam = (ScreenMap(Beams(i).X + l, Beams(i).Y) - ThisPoint) * 100
+                            EnemyBeams(ThisEnemyBeam).X = -EnemyBeams(ThisEnemyBeam).Size
+                            _DISPLAY
                         END IF
                     END IF
                 NEXT l
@@ -652,6 +716,11 @@ DO
         COLOR _CEIL(RND * 14) + 1
     ELSE
         COLOR ShipColor
+    END IF
+
+    IF GetTICKS - LastLife# < GraceTime THEN
+        BlinkShip%% = NOT BlinkShip%%
+        IF BlinkShip%% THEN COLOR 0
     END IF
 
     IF Alive THEN
@@ -763,7 +832,7 @@ DO
         END IF
 
         'Check enemies
-        IF Collision < 0 THEN
+        IF Collision < 0 AND GetTICKS - LastLife# > GraceTime THEN
             'Negative value is the hit enemy id, with negative sign
             CheckEnemy = -Collision
             'Death by enemy (or severe damage)
@@ -795,6 +864,46 @@ DO
                 ExplosionAnimationStep = 0
                 'Enemy dies too:
                 KillEnemy CheckEnemy, ShipSize
+                IF Shield THEN
+                    ShieldOFFMessage# = GetTICKS
+                    Shield = 0
+                    Damage = -1
+                    EnemyExplosion = -1
+                ELSE
+                    LastLife# = GetTICKS
+                    Damage = -1
+                    PlaySound SNDShipDamage
+                    IF Bonus.Type$ = "LIFE" THEN Bonus.Color = 4
+                    EnemyExplosion = -1
+                    CarefulMessage# = GetTICKS
+                    ShipSize = 1: UpperLimit = 4: LowerLimit = 49: LeftLimit = 2
+                    Energy = Energy / 2
+                END IF
+            END IF 'Shipsize = 1
+        ELSEIF Collision = ScreenMap.EnemyLaser AND GetTICKS - LastLife# > GraceTime THEN
+            'Death by enemy laser (or severe damage)
+            IF ShipSize = 1 THEN
+                PlaySound SNDExplosion
+                Bonus.Active = 0
+                ExplosionAnimationStep = 0
+                'Center explosion around collision area:
+                Boom.X = Enemies(CheckEnemy).X
+                Boom.Y = Enemies(CheckEnemy).Y * 2
+                IF Shield THEN
+                    ShieldOFFMessage# = GetTICKS
+                    Shield = 0
+                    Damage = -1
+                    EnemyExplosion = -1
+                ELSE
+                    Alive = 0
+                    DeathMessage$ = "    BUSTED!!   "
+                    EnemyExplosion = 0
+                END IF
+            ELSE
+                PlaySound SNDExplosion
+                Boom.X = Enemies(CheckEnemy).X
+                Boom.Y = Enemies(CheckEnemy).Y * 2
+                ExplosionAnimationStep = 0
                 IF Shield THEN
                     ShieldOFFMessage# = GetTICKS
                     Shield = 0
@@ -924,7 +1033,7 @@ DO
         END SELECT
 
         'Show earned points
-        PointGoesUp! = PointGoesUp! - .5
+        PointGoesUp! = PointGoesUp! - .3
         IF RoundRow + PointGoesUp! >= 2 AND RoundRow + PointGoesUp! <= 25 AND x >= 1 AND x <= 77 THEN
             SELECT CASE ABS(INT(PointGoesUp!))
                 CASE 1 TO 2: COLOR 15
@@ -971,7 +1080,7 @@ DO
 
     IF Pause = 0 AND Alive = -1 THEN
         IF GoalAchieved THEN Countdown# = GetTICKS: GoalAchieved = 0
-        IF Countdown# > 0 AND GetTICKS - Countdown# > 10 THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
+        IF Countdown# > 0 AND GetTICKS - Countdown# > 5 THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
     END IF
 
     _DISPLAY
@@ -998,10 +1107,10 @@ END
 
 ShotsFired:
 'Find an empty laser beam slot
-FOR NewBeam = 1 TO max_beams
+FOR NewBeam = 1 TO MaxBeams
     IF Beams(NewBeam).X = 0 OR Beams(NewBeam).X > 80 THEN EXIT FOR
 NEXT
-IF NewBeam > max_beams THEN RETURN 'No available beam slots
+IF NewBeam > MaxBeams THEN RETURN 'No available beam slots
 
 'Check for the last beam StartTime so
 'we don't fire multiple lasers too quickly:
@@ -1021,6 +1130,26 @@ Beams(NewBeam).StartTime = GetTICKS
 Beams(NewBeam).Char = Char$
 RETURN
 
+EnemyShotsFired:
+'Find an empty laser beam slot
+FOR NewBeam = 1 TO MaxEnemyBeams
+    IF EnemyBeams(NewBeam).X <= 0 OR GetTICKS - EnemyBeams(NewBeam).StartTime > .8 THEN EXIT FOR
+NEXT
+IF NewBeam > MaxEnemyBeams THEN RETURN 'No available beam slots
+
+'Check for the last beam StartTime so
+'we don't fire multiple lasers too quickly:
+IF GetTICKS - LastEnemyBeam# < .8 THEN RETURN
+LastEnemyBeam# = GetTICKS
+
+EnemyBeams(NewBeam).ID = ShootingID
+EnemyBeams(NewBeam).X = Enemies(ShootingID).X
+EnemyBeams(NewBeam).Y = Enemies(ShootingID).Y
+EnemyBeams(NewBeam).Size = 2
+EnemyBeams(NewBeam).StartTime = GetTICKS
+EnemyBeams(NewBeam).Char = CHR$(220)
+RETURN
+
 UpdateStats:
 COLOR , 1
 _PRINTSTRING (1, 1), STRING$(80, 32)
@@ -1033,6 +1162,8 @@ IF Energy > 100 THEN Energy = 100
 IF INT(Energy) <= 0 THEN Energy = 0
 IF Mute THEN COLOR 0, 7: _PRINTSTRING (20, 1), " MUTE ": COLOR , 1
 
+IF noSlots THEN _PRINTSTRING (50, 12), "NO SLOTS FOR ENEMY FIRE"
+IF EnemyShot THEN _PRINTSTRING (50, 13), "ENEMY SHOT"
 '_PRINTSTRING (30, 25), " PAUSE OFFSET:" + STR$(PauseOffset#) + " "
 
 COLOR 15
@@ -1141,6 +1272,12 @@ IF KilledEnemies < ChapterGoal THEN
     'COLOR 4
     '_PRINTSTRING (1, 25), EnemiesLeft$
     _PUTIMAGE (0, 24 * _FONTHEIGHT), LifeBarImage, 0, (0, 0)-STEP((KilledEnemies / ChapterGoal) * (80 * _FONTWIDTH), _FONTHEIGHT)
+    HideLifeBar! = 0
+ELSE
+    IF HideLifeBar! < _FONTHEIGHT THEN
+        HideLifeBar! = HideLifeBar! + .3
+        _PUTIMAGE (0, 24 * _FONTHEIGHT + HideLifeBar!), LifeBarImage, 0
+    END IF
 END IF
 
 COLOR , 0
@@ -1237,7 +1374,7 @@ SUB CreateBonus
     SELECT CASE B%
         CASE 1 'Life
             IF (GetTICKS - LastLife# > 60 AND ShipSize = 2) OR _
-               (GetTICKS - LastLife# > 25 AND ShipSize = 1) THEN
+               (GetTICKS - LastLife# > 15 AND ShipSize = 1) THEN
                 LastLife# = GetTICKS
                 Bonus.Type$ = "LIFE"
                 Bonus.Active = -1
@@ -1319,6 +1456,7 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).Chase = 0
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+                Enemies(id).CanShoot = -1
             ELSE
                 'Enemy not yet killed, so we'll turn it into its second form
                 Enemies(id).Color = 4
@@ -1337,6 +1475,7 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).MovePattern = m$
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+                Enemies(id).CanShoot = 0
             END IF
         CASE 2
             IF Enemies(id).Hits <= 0 THEN
@@ -1366,6 +1505,7 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).Chase = 0
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+                Enemies(id).CanShoot = -1
             ELSE
                 'Enemy not yet killed, will try to run away wounded
                 Enemies(id).Color = 8
@@ -1381,6 +1521,7 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).MovePattern = m$
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+                Enemies(id).CanShoot = 0
             END IF
         CASE 3
             IF Enemies(id).Hits <= 0 THEN
@@ -1404,6 +1545,7 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).MovePattern = m$
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+                Enemies(id).CanShoot = 0
             END IF
         CASE 4
             IF Enemies(id).Hits <= 0 THEN
@@ -1430,6 +1572,7 @@ SUB CreateEnemy (id, Chapter)
                 END IF
                 Enemies(id).MoveSteps = LEN(m$) / 2
                 Enemies(id).CurrentMoveStep = _CEIL(RND * Enemies(id).MoveSteps)
+                Enemies(id).CanShoot = -1
             END IF
     END SELECT
 END SUB
@@ -1540,6 +1683,7 @@ SUB SetLevel (Which)
 
     TotalChapters = 3
     Recharge = -1
+    Energy = 0
     GoalAchieved = 0
     KilledEnemies = 0
     Countdown# = 0
@@ -1624,6 +1768,7 @@ SUB SetLevel (Which)
     END SELECT
 
     BackupStarFieldSpeed = StarFieldSpeed
+    BackupEnemiesSpeed = EnemiesSpeed
 END SUB
 
 FUNCTION GetTICKS#
@@ -1641,6 +1786,7 @@ SUB KillEnemy (id, Strength)
     Enemies(id).X = Enemies(id).X + 3
     IF Enemies(id).Hits <= 0 THEN
         KilledEnemies = KilledEnemies + 1
+        WeKilledFirst = -1
         IF KilledEnemies = ChapterGoal THEN GoalAchieved = -1
     END IF
     CreateEnemy id, Chapter
