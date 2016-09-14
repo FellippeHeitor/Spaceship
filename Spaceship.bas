@@ -109,6 +109,9 @@ DIM SHARED Bonus.X AS INTEGER, Bonus.Y AS INTEGER, Bonus.Shape$
 DIM SHARED Bonus.Speed#
 DIM SHARED Bonus.Width AS INTEGER, Bonus.Height AS INTEGER
 DIM SHARED Bonus.Type$
+DIM SHARED Bonus.ColorPattern AS STRING
+DIM SHARED Bonus.ColorSteps AS INTEGER
+DIM SHARED Bonus.CurrentColorStep AS INTEGER
 
 DIM ShieldColorIndex AS INTEGER, LastShieldColor#
 DIM x.offset!, Damage AS _BYTE, DeathMessage$
@@ -296,8 +299,9 @@ PRINT "LOADING AUDIO";: COLOR 31: PRINT "..."
 DIM SNDCatchEnergy, SNDFullRecharge, SNDShieldAPPEAR, SNDShieldON
 DIM SNDLaser1, SNDLaser2, SNDShipDamage, SNDShipGrow, SNDEnergyUP
 DIM SNDExplosion, SNDOutOfEnergy, SNDExtraLife, SNDShieldOFF
-DIM SNDIntercom
+DIM SNDIntercom, SNDBlizzard
 
+SNDBlizzard = _SNDOPEN(Path$ + "Blizzard.wav", "SYNC")
 SNDIntercom = _SNDOPEN(Path$ + "Intercom.wav", "SYNC")
 SNDCatchEnergy = _SNDOPEN(Path$ + "CatchEnergy.wav", "SYNC")
 SNDFullRecharge = _SNDOPEN(Path$ + "FullRecharge.wav", "SYNC")
@@ -718,7 +722,7 @@ DO
         COLOR ShipColor
     END IF
 
-    IF GetTICKS - LastLife# < GraceTime THEN
+    IF GetTICKS - LastDamage# < GraceTime THEN
         BlinkShip%% = NOT BlinkShip%%
         IF BlinkShip%% THEN COLOR 0
     END IF
@@ -773,6 +777,8 @@ DO
         IF Bonus.Active THEN
             IF Bonus.Color = -1 THEN
                 COLOR _CEIL(RND * 14) + 1
+            ELSEIF Bonus.Color = -2 THEN
+                COLOR CVI(MID$(Bonus.ColorPattern, (Bonus.CurrentColorStep * 2) - 1, 2))
             ELSE
                 COLOR Bonus.Color
             END IF
@@ -828,11 +834,16 @@ DO
                     ShieldONMessage# = GetTICKS
                     ShieldInitiated# = GetTICKS
                     Bonus.Active = 0
+                CASE "FREEZE"
+                    PlaySound SNDBlizzard
+                    Freeze = -1
+                    FreezeInitiated# = GetTICKS
+                    Bonus.Active = 0
             END SELECT
         END IF
 
         'Check enemies
-        IF Collision < 0 AND GetTICKS - LastLife# > GraceTime THEN
+        IF Collision < 0 AND GetTICKS - LastDamage# > GraceTime THEN
             'Negative value is the hit enemy id, with negative sign
             CheckEnemy = -Collision
             'Death by enemy (or severe damage)
@@ -871,6 +882,7 @@ DO
                     EnemyExplosion = -1
                 ELSE
                     LastLife# = GetTICKS
+                    LastDamage# = GetTICKS
                     Damage = -1
                     PlaySound SNDShipDamage
                     IF Bonus.Type$ = "LIFE" THEN Bonus.Color = 4
@@ -880,7 +892,7 @@ DO
                     Energy = Energy / 2
                 END IF
             END IF 'Shipsize = 1
-        ELSEIF Collision = ScreenMap.EnemyLaser AND GetTICKS - LastLife# > GraceTime THEN
+        ELSEIF Collision = ScreenMap.EnemyLaser AND GetTICKS - LastDamage# > GraceTime AND Shield = 0 THEN
             'Death by enemy laser (or severe damage)
             IF ShipSize = 1 THEN
                 PlaySound SNDExplosion
@@ -889,36 +901,23 @@ DO
                 'Center explosion around collision area:
                 Boom.X = Enemies(CheckEnemy).X
                 Boom.Y = Enemies(CheckEnemy).Y * 2
-                IF Shield THEN
-                    ShieldOFFMessage# = GetTICKS
-                    Shield = 0
-                    Damage = -1
-                    EnemyExplosion = -1
-                ELSE
-                    Alive = 0
-                    DeathMessage$ = "    BUSTED!!   "
-                    EnemyExplosion = 0
-                END IF
+                Alive = 0
+                DeathMessage$ = "    BUSTED!!   "
+                EnemyExplosion = 0
             ELSE
                 PlaySound SNDExplosion
                 Boom.X = Enemies(CheckEnemy).X
                 Boom.Y = Enemies(CheckEnemy).Y * 2
                 ExplosionAnimationStep = 0
-                IF Shield THEN
-                    ShieldOFFMessage# = GetTICKS
-                    Shield = 0
-                    Damage = -1
-                    EnemyExplosion = -1
-                ELSE
-                    LastLife# = GetTICKS
-                    Damage = -1
-                    PlaySound SNDShipDamage
-                    IF Bonus.Type$ = "LIFE" THEN Bonus.Color = 4
-                    EnemyExplosion = -1
-                    CarefulMessage# = GetTICKS
-                    ShipSize = 1: UpperLimit = 4: LowerLimit = 49: LeftLimit = 2
-                    Energy = Energy / 2
-                END IF
+                LastLife# = GetTICKS
+                LastDamage# = GetTICKS
+                Damage = -1
+                PlaySound SNDShipDamage
+                IF Bonus.Type$ = "LIFE" THEN Bonus.Color = 4
+                EnemyExplosion = -1
+                CarefulMessage# = GetTICKS
+                ShipSize = 1: UpperLimit = 4: LowerLimit = 49: LeftLimit = 2
+                Energy = Energy / 2
             END IF 'Shipsize = 1
         END IF 'Collision < 0
     END IF 'Alive
@@ -941,6 +940,11 @@ DO
         _PUTIMAGE ((x - x.offset!) * _FONTWIDTH - _FONTWIDTH, (row - 1.3) * _FONTHEIGHT - _FONTHEIGHT), ShieldImages(ShieldColorIndex), 0
 
         IF GetTICKS - ShieldInitiated# > 30 THEN Shield = 0: PlaySound SNDShieldOFF: ShieldOFFMessage# = GetTICKS
+    END IF
+
+    IF Freeze THEN
+        'Freeze mode lasts for 10 seconds
+        IF GetTICKS - FreezeInitiated# > 10 THEN Freeze = 0: PlaySound SNDBlizzard
     END IF
 
     'If moving forward, draw a smoke trail behind the ship
@@ -1059,6 +1063,7 @@ DO
                 LastShipGrow# = GetTICKS
                 Alive = -1
                 Shield = 0
+                Freeze = 0
                 Bonus.Active = 0
                 ShipSize = 2: UpperLimit = 6: LowerLimit = 47: LeftLimit = 5
                 Stars = 0
@@ -1162,14 +1167,10 @@ IF Energy > 100 THEN Energy = 100
 IF INT(Energy) <= 0 THEN Energy = 0
 IF Mute THEN COLOR 0, 7: _PRINTSTRING (20, 1), " MUTE ": COLOR , 1
 
-IF noSlots THEN _PRINTSTRING (50, 12), "NO SLOTS FOR ENEMY FIRE"
-IF EnemyShot THEN _PRINTSTRING (50, 13), "ENEMY SHOT"
-'_PRINTSTRING (30, 25), " PAUSE OFFSET:" + STR$(PauseOffset#) + " "
-
 COLOR 15
 TimeRemaining# = GetTICKS - Countdown#
-IF Countdown# > 0 AND TimeRemaining# > 0 AND TimeRemaining# <= 10 THEN
-    _PRINTSTRING (60, 25), " NEXT MISSION IN" + STR$(INT(10 - TimeRemaining#)) + " "
+IF Countdown# > 0 AND TimeRemaining# > 0 AND TimeRemaining# <= 5 THEN
+    _PRINTSTRING (60, 25), " NEXT MISSION IN" + STR$(INT(5 - TimeRemaining#)) + " "
 ELSE
     IF GetTICKS - ShowChapterName# < 2 THEN
         COLOR 15, 1
@@ -1208,7 +1209,7 @@ ELSE
                 Colon = INSTR(NextTip$, ":")
                 Pipe = INSTR(NextTip$, "|")
                 IF Pipe THEN
-                    SecondLine$ = MID$(NextTip$, Colon + 1, Pipe - Colon)
+                    SecondLine$ = MID$(NextTip$, Colon + 1, Pipe - Colon - 1)
                     ThirdLine$ = MID$(NextTip$, Pipe + 1)
                 ELSE
                     SecondLine$ = MID$(NextTip$, Colon + 1)
@@ -1221,6 +1222,16 @@ ELSE
                 END IF
             END IF
         END IF
+    END IF
+
+    IF Freeze AND Alive THEN
+        FreezeLeft = 10 - (GetTICKS - FreezeInitiated#)
+        COLOR 9, 0
+        IF FreezeLeft <= 3 THEN COLOR 9 + 16
+        _PRINTSTRING (2, 3), STRING$(FreezeLeft, 219) + STRING$(10 - FreezeLeft, 220)
+        COLOR 11
+        IF FreezeLeft <= 3 THEN COLOR 11 + 16
+        _PRINTSTRING (2, 4), "TIME FREEZE"
     END IF
 END IF
 
@@ -1366,11 +1377,12 @@ END SUB
 SUB CreateBonus
     DIM B%
     SHARED ShipSize AS _BYTE, Shield AS _BYTE, SNDShieldAPPEAR, Recharge AS _BYTE
-    SHARED LastLife#, LastEnergy#, LastShield#
+    SHARED Freeze, SNDBlizzard
+    SHARED LastLife#, LastEnergy#, LastShield#, LastFreeze#
 
     IF Recharge THEN EXIT SUB
 
-    B% = _CEIL(RND * 3)
+    B% = _CEIL(RND * 4)
     SELECT CASE B%
         CASE 1 'Life
             IF (GetTICKS - LastLife# > 60 AND ShipSize = 2) OR _
@@ -1386,7 +1398,7 @@ SUB CreateBonus
                 Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
                 Bonus.Speed# = .2
             END IF
-        CASE 2
+        CASE 2 'Energy
             IF GetTICKS - LastEnergy# > 20 OR Energy < 10 THEN
                 LastEnergy# = GetTICKS
                 Bonus.Type$ = "ENERGY"
@@ -1402,7 +1414,7 @@ SUB CreateBonus
                 Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
                 Bonus.Speed# = .05
             END IF
-        CASE 3
+        CASE 3 'Shield
             IF GetTICKS - LastShield# > 120 AND Shield = 0 THEN
                 PlaySound SNDShieldAPPEAR
                 LastShield# = GetTICKS
@@ -1416,6 +1428,24 @@ SUB CreateBonus
                 Bonus.Shape$ = Bonus.Shape$ + CHR$(176) + "     " + CHR$(176)
                 Bonus.Shape$ = Bonus.Shape$ + CHR$(176) + "     " + CHR$(176)
                 Bonus.Shape$ = Bonus.Shape$ + STRING$(7, 176)
+                Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
+                Bonus.Speed# = .08
+            END IF
+        CASE 4 'Freeze power
+            IF GetTICKS - LastFreeze# > 120 AND Freeze = 0 THEN
+                PlaySound SNDBlizzard
+                LastFreeze# = GetTICKS
+                Bonus.Type$ = "FREEZE"
+                Bonus.Active = -1
+                Bonus.X = 80
+                Bonus.Color = -2 'Custom colors
+                m$ = MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(3) + MKI$(9) + MKI$(3) + MKI$(9) + MKI$(3)
+                Bonus.ColorPattern = m$
+                Bonus.ColorSteps = LEN(m$) / 2
+                Bonus.CurrentColorStep = 1
+                Bonus.Height = 7
+                Bonus.Width = 11
+                Bonus.Shape$ = CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(9) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(9) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(9) + CHR$(32) + CHR$(4) + CHR$(249) + CHR$(92) + CHR$(32) + CHR$(31) + CHR$(32) + CHR$(47) + CHR$(249) + CHR$(4) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(4) + CHR$(196) + CHR$(16) + CHR$(15) + CHR$(17) + CHR$(196) + CHR$(4) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(4) + CHR$(249) + CHR$(47) + CHR$(32) + CHR$(30) + CHR$(32) + CHR$(92) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(9) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(32) + CHR$(4) + CHR$(32) + CHR$(9) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(9) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32)
                 Bonus.Y = _CEIL(RND * (24 - Bonus.Height)) + 1
                 Bonus.Speed# = .08
             END IF
@@ -1607,6 +1637,9 @@ SUB DrawElements
         IF Bonus.Color = -1 THEN
             'Random colors
             COLOR _CEIL(RND * 14) + 1
+        ELSEIF Bonus.Color = -2 THEN 'Custom color pattern
+            COLOR CVI(MID$(Bonus.ColorPattern, (Bonus.CurrentColorStep * 2) - 1, 2))
+            Bonus.CurrentColorStep = Bonus.CurrentColorStep MOD Bonus.ColorSteps + 1
         ELSEIF (Bonus.Type$ = "ENERGY" AND GetTICKS - LastEnergyUP# <= .2) THEN
             IF EnergyBlinkColor = 10 THEN EnergyBlinkColor = 9 ELSE EnergyBlinkColor = 10
             COLOR EnergyBlinkColor
