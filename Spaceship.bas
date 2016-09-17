@@ -17,7 +17,7 @@ DEFLNG A-Z
 
 DIM SONG(1 TO 3) AS LONG
 Path$ = "Audio\"
-SONG(1) = _SNDOPEN(Path$ + "levelintro.ogg", "SYNC,PAUSE")
+SONG(1) = _SNDOPEN(Path$ + "levelintro.ogg", "SYNC,PAUSE,LEN")
 IF SONG(1) THEN _SNDLOOP SONG(1)
 
 ' declare constants and types
@@ -64,6 +64,7 @@ DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS DOUBLE
 DIM SHARED GoalAchieved AS _BYTE, ChapterGoal AS INTEGER
 DIM SHARED KilledEnemies AS INTEGER, Countdown#
 DIM SHARED WeKilledFirst AS _BYTE
+DIM SHARED VisibleEnemies AS INTEGER
 DIM Collision AS _BYTE
 DIM row AS SINGLE, RoundRow AS INTEGER
 DIM SHARED BackupStarFieldSpeed AS DOUBLE, StarFieldSpeed AS DOUBLE
@@ -137,14 +138,16 @@ REDIM SHARED MyDevices(0) AS DevType
 DIM SHARED ChosenController
 
 'Initialize ButtonMap for the assignment routine
-DIM SHARED ButtonMap(1 TO 6) AS ButtonMapType
+DIM SHARED ButtonMap(1 TO 8) AS ButtonMapType
 i = 1
 ButtonMap(i).Name = "START": i = i + 1
+ButtonMap(i).Name = "SELECT": i = i + 1
 ButtonMap(i).Name = "UP": i = i + 1
 ButtonMap(i).Name = "DOWN": i = i + 1
 ButtonMap(i).Name = "LEFT": i = i + 1
 ButtonMap(i).Name = "RIGHT": i = i + 1
 ButtonMap(i).Name = "FIRE": i = i + 1
+ButtonMap(i).Name = "SPECIAL": i = i + 1
 
 'Detection routine:
 PRINT "Detecting your controller. Press any button..."
@@ -205,12 +208,12 @@ IF ChosenController = 1 AND INSTR(_OS$, "WIN") = 0 THEN UseKeyboard = -1
 
 AssignKeys:
 CLS
+LOCATE 25, 1
+COLOR 8
 IF NOT UseKeyboard THEN
-    PRINT "Using "; RTRIM$(MyDevices(ChosenController).Name)
-    PRINT "Button assignments:"
+    PRINT "Using "; RTRIM$(MyDevices(ChosenController).Name);
 ELSE
-    PRINT "Using KEYBOARD"
-    PRINT "Key assignments:"
+    PRINT "Using KEYBOARD";
 END IF
 PRINT
 IF _FILEEXISTS("controller.dat") = 0 THEN
@@ -269,9 +272,9 @@ ELSE
         ON ERROR GOTO 0
         GOTO AssignKeys
     END IF
-    FOR i = 1 TO UBOUND(Buttonmap)
-        PRINT ButtonMap(i).Name; "="; ButtonMap(i).ID
-    NEXT
+    'FOR i = 1 TO UBOUND(Buttonmap)
+    '    PRINT ButtonMap(i).Name; "="; ButtonMap(i).ID
+    'NEXT
 END IF
 GOTO DemoStart
 PRINT
@@ -292,32 +295,42 @@ Dummy = GetButton("", MyDevices(ChosenController).ID)
 RANDOMIZE TIMER
 
 'Load audio
+_PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
+_PALETTECOLOR 1, _RGB32(55, 55, 55)
+_DISPLAYORDER _HARDWARE , _SOFTWARE
+
+RESTORE SpaceshipLogo
+titlecard& = RestoreImage&(_RGB32(233, 200, 94))
+_PUTIMAGE (((_WIDTH * _FONTWIDTH) \ 2) - (_WIDTH(titlecard&) \ 2), 100), titlecard&, 0
+
 PRINT
 COLOR 15
-PRINT "LOADING AUDIO";: COLOR 31: PRINT "..."
+Load$ = "LOADING AUDIO"
+_PRINTSTRING (41 - LEN(Load$) / 2, 12), Load$
+_DISPLAY
 
 DIM SNDCatchEnergy, SNDFullRecharge, SNDShieldAPPEAR, SNDShieldON
 DIM SNDLaser1, SNDLaser2, SNDShipDamage, SNDShipGrow, SNDEnergyUP
 DIM SNDExplosion, SNDOutOfEnergy, SNDExtraLife, SNDShieldOFF
 DIM SNDIntercom, SNDBlizzard
 
-SNDBlizzard = _SNDOPEN(Path$ + "Blizzard.wav", "SYNC")
-SNDIntercom = _SNDOPEN(Path$ + "Intercom.wav", "SYNC")
-SNDCatchEnergy = _SNDOPEN(Path$ + "CatchEnergy.wav", "SYNC")
-SNDFullRecharge = _SNDOPEN(Path$ + "FullRecharge.wav", "SYNC")
-SNDShieldAPPEAR = _SNDOPEN(Path$ + "ShieldAPPEAR.wav", "SYNC")
-SNDShieldON = _SNDOPEN(Path$ + "ShieldON.wav", "SYNC")
-SNDShieldOFF = _SNDOPEN(Path$ + "ShieldOFF.wav", "SYNC")
-SNDLaser1 = _SNDOPEN(Path$ + "Laser1.wav", "SYNC")
-SNDLaser2 = _SNDOPEN(Path$ + "Laser2.wav", "SYNC")
-SNDShipDamage = _SNDOPEN(Path$ + "ShipDamage.wav", "SYNC")
-SNDShipGrow = _SNDOPEN(Path$ + "ShipGrow.wav", "SYNC")
-SNDEnergyUP = _SNDOPEN(Path$ + "EnergyUP.wav", "SYNC")
-SNDExplosion = _SNDOPEN(Path$ + "Explosion1.wav", "SYNC")
-SNDOutOfEnergy = _SNDOPEN(Path$ + "OutOfEnergy.wav", "SYNC")
-SNDExtraLife = _SNDOPEN(Path$ + "ExtraLife.wav", "SYNC")
-SONG(2) = _SNDOPEN(Path$ + "bossfight.ogg", "SYNC,PAUSE")
-SONG(3) = _SNDOPEN(Path$ + "level1.ogg", "SYNC,PAUSE")
+SNDBlizzard = _SNDOPEN(Path$ + "Blizzard.wav", "SYNC,LEN")
+SNDIntercom = _SNDOPEN(Path$ + "Intercom.wav", "SYNC,LEN")
+SNDCatchEnergy = _SNDOPEN(Path$ + "CatchEnergy.wav", "SYNC,LEN")
+SNDFullRecharge = _SNDOPEN(Path$ + "FullRecharge.wav", "SYNC,LEN")
+SNDShieldAPPEAR = _SNDOPEN(Path$ + "ShieldAPPEAR.wav", "SYNC,LEN")
+SNDShieldON = _SNDOPEN(Path$ + "ShieldON.wav", "SYNC,LEN")
+SNDShieldOFF = _SNDOPEN(Path$ + "ShieldOFF.wav", "SYNC,LEN")
+SNDLaser1 = _SNDOPEN(Path$ + "Laser1.wav", "SYNC,LEN")
+SNDLaser2 = _SNDOPEN(Path$ + "Laser2.wav", "SYNC,LEN")
+SNDShipDamage = _SNDOPEN(Path$ + "ShipDamage.wav", "SYNC,LEN")
+SNDShipGrow = _SNDOPEN(Path$ + "ShipGrow.wav", "SYNC,LEN")
+SNDEnergyUP = _SNDOPEN(Path$ + "EnergyUP.wav", "SYNC,LEN")
+SNDExplosion = _SNDOPEN(Path$ + "Explosion1.wav", "SYNC,LEN")
+SNDOutOfEnergy = _SNDOPEN(Path$ + "OutOfEnergy.wav", "SYNC,LEN")
+SNDExtraLife = _SNDOPEN(Path$ + "ExtraLife.wav", "SYNC,LEN")
+SONG(2) = _SNDOPEN(Path$ + "bossfight.ogg", "SYNC,PAUSE,LEN")
+SONG(3) = _SNDOPEN(Path$ + "level1.ogg", "SYNC,PAUSE,LEN")
 
 IF SONG(1) THEN _SNDSTOP SONG(1)
 IF SONG(3) <> 0 THEN _SNDLOOP SONG(3)
@@ -370,17 +383,16 @@ LifeBarImage = _COPYIMAGE(LifeBarCanvas, 33)
 _FREEIMAGE LifeBarCanvas
 _DEST 0
 
-_DISPLAYORDER _HARDWARE , _SOFTWARE
-
 Boom$ = CHR$(219) + CHR$(178) + CHR$(177) + CHR$(176) + CHR$(15) + CHR$(7) + CHR$(249) + CHR$(250)
 
 CONST Acceleration = .005
 CONST GraceTime = 2
 
+CONST EASY = 1
+CONST HARD = 2
+
 RestartGame:
 ERASE Enemies
-_PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
-_PALETTECOLOR 1, _RGB32(55, 55, 55)
 CarefulMessage# = -1.5
 EnergyWarning# = -1
 ShieldONMessage# = -1
@@ -402,6 +414,7 @@ InitialSetup = -1
 ShipColor = 14
 StarFieldSpeed = .08
 WeKilledFirst = 0
+GameMode = EASY
 
 'Wait until all buttons are released:
 DO
@@ -411,7 +424,7 @@ DO
     k$ = INKEY$
     IF k$ = CHR$(27) THEN EscExit = -1: EXIT DO
     IF UCASE$(k$) = "M" THEN Mute = NOT Mute
-    IF godMode AND UCASE$(k$) = "F" THEN Freeze = NOT Freeze
+    IF godMode AND UCASE$(k$) = "F" THEN Freeze = NOT Freeze: IF Freeze THEN FreezeInitiated# = GetTICKS
     IF Mute THEN
         IF NOT Pause THEN
             IF _SNDPLAYING(SONG(Level + 2)) THEN _SNDPAUSE SONG(Level + 2)
@@ -442,6 +455,22 @@ DO
         END IF
 
         IF GetButton("FIRE", 0) THEN GOSUB ShotsFired
+
+        IF GetButton("SPECIAL", 0) AND GetTICKS - LastSpecialUsed# > .3 AND Alive THEN
+            SELECT CASE CurrentSpecial
+                CASE 0 'Freeze
+                    IF totalfreeze > 0 THEN
+                        totalfreeze = totalfreeze - 1
+                        Freeze = -1
+                        FreezeInitiated# = GetTICKS
+                        LastSpecialUsed# = GetTICKS
+                    END IF
+            END SELECT
+        END IF
+
+        IF GetButton("SELECT", 0) AND GetTICKS - LastSelect# > .3 AND Alive THEN
+            LastSelect# = GetTICKS
+        END IF
     END IF
 
     IF GetButton("START", 0) AND (GetUptime / 1000) - LastPause# > .3 THEN
@@ -835,10 +864,11 @@ DO
                     ShieldInitiated# = GetTICKS
                     Bonus.Active = 0
                 CASE "FREEZE"
-                    PlaySound SNDBlizzard
-                    Freeze = -1
-                    FreezeInitiated# = GetTICKS
-                    Bonus.Active = 0
+                    IF totalfreeze < 3 THEN
+                        PlaySound SNDShieldON
+                        totalfreeze = totalfreeze + 1
+                        Bonus.Active = 0
+                    END IF
             END SELECT
         END IF
 
@@ -945,6 +975,9 @@ DO
     IF Freeze THEN
         'Freeze mode lasts for 10 seconds
         IF GetTICKS - FreezeInitiated# > 10 THEN Freeze = 0: PlaySound SNDBlizzard
+
+        'Or until no more enemies are on screen
+        IF VisibleEnemies = 0 THEN Freeze = 0: PlaySound SNDBlizzard
     END IF
 
     'If moving forward, draw a smoke trail behind the ship
@@ -967,6 +1000,15 @@ DO
         COLOR 15, 1
         PauseMessage$ = "    PAUSED     "
         _PRINTSTRING (_WIDTH \ 2 - LEN(PauseMessage$) \ 2, _HEIGHT \ 2), PauseMessage$
+
+        IF FadeStep = 0 THEN FadeStep = 10
+        Fade = Fade + FadeStep
+        IF Fade < 100 THEN FadeStep = 10: Fade = 100
+        IF Fade > 255 THEN FadeStep = -10: Fade = 255
+        IF titlecard& < -1 THEN _FREEIMAGE titlecard&
+        RESTORE SpaceshipLogo
+        titlecard& = RestoreImage&(_RGBA32(233, 200, 94, Fade))
+        _PUTIMAGE (((_WIDTH * _FONTWIDTH) \ 2) - (_WIDTH(titlecard&) \ 2), 100), titlecard&, 0
     END IF
 
     GOSUB UpdateStats
@@ -1167,6 +1209,11 @@ IF Energy > 100 THEN Energy = 100
 IF INT(Energy) <= 0 THEN Energy = 0
 IF Mute THEN COLOR 0, 7: _PRINTSTRING (20, 1), " MUTE ": COLOR , 1
 
+IF totalfreeze > 0 THEN
+    COLOR 11
+    _PRINTSTRING (65, 1), STRING$(totalfreeze, 15)
+END IF
+
 COLOR 15
 TimeRemaining# = GetTICKS - Countdown#
 IF Countdown# > 0 AND TimeRemaining# > 0 AND TimeRemaining# <= 5 THEN
@@ -1297,6 +1344,65 @@ RETURN
 FileError:
 RESUME NEXT
 
+'Images: ---------------------------------------------------------------------------
+SpaceshipLogo:
+DATA 313,56,15B,34W,188B,5W,32B,6W,33B,*
+DATA 13B,37W,185B,8W,30B,8W,32B,*
+DATA 11B,39W,185B,8W,30B,8W,32B,*
+DATA 11B,40W,183B,9W,29B,9W,32B,*
+DATA 10B,41W,183B,9W,29B,9W,32B,*
+DATA 9B,42W,183B,9W,29B,9W,32B,*
+DATA 9B,42W,182B,9W,30B,8W,33B,*
+DATA 8B,43W,182B,9W,30B,8W,33B,*
+DATA 8B,42W,183B,9W,30B,7W,34B,*
+DATA 8B,42W,183B,9W,31B,4W,36B,*
+DATA 7B,10W,24B,9W,182B,9W,72B,*
+DATA 7B,9W,25B,9W,3B,26W,11B,23W,14B,26W,13B,20W,14B,28W,4B,26W,15B,3W,6B,26W,5B,*
+DATA 7B,9W,25B,8W,4B,28W,8B,26W,9B,31W,8B,25W,9B,32W,3B,28W,11B,7W,4B,28W,3B,*
+DATA 7B,8W,26B,8W,3B,30W,6B,28W,7B,33W,6B,27W,7B,33W,3B,29W,9B,8W,3B,30W,2B,*
+DATA 6B,9W,26B,7W,4B,31W,4B,29W,6B,34W,5B,28W,6B,34W,2B,31W,7B,9W,3B,31W,1B,*
+DATA 6B,9W,28B,2W,7B,31W,4B,30W,5B,35W,4B,28W,5B,35W,2B,31W,7B,9W,3B,31W,1B,*
+DATA 6B,9W,37B,32W,3B,30W,4B,36W,3B,30W,3B,36W,2B,32W,6B,9W,3B,32W,*
+DATA 5B,37W,9B,33W,3B,30W,4B,36W,3B,30W,3B,36W,1B,33W,5B,9W,3B,33W,*
+DATA 5B,39W,7B,33W,3B,29W,4B,36W,3B,30W,3B,36W,2B,33W,5B,9W,3B,33W,*
+DATA 5B,40W,6B,33W,3B,29W,4B,36W,3B,30W,3B,36W,2B,33W,5B,9W,3B,33W,*
+DATA 5B,40W,6B,33W,3B,29W,4B,36W,3B,30W,3B,34W,4B,33W,5B,9W,3B,33W,*
+DATA 5B,41W,4B,9W,15B,10W,22B,10W,3B,10W,18B,9W,2B,10W,12B,9W,2B,9W,29B,9W,15B,10W,4B,9W,3B,9W,15B,10W,*
+DATA 5B,41W,4B,9W,15B,9W,23B,9W,4B,9W,19B,9W,2B,9W,12B,9W,3B,9W,29B,9W,15B,9W,5B,9W,3B,9W,15B,9W,1B,*
+DATA 6B,40W,4B,9W,15B,9W,5B,27W,4B,9W,19B,8W,3B,30W,3B,32W,6B,9W,15B,9W,5B,9W,3B,9W,15B,9W,1B,*
+DATA 6B,40W,4B,9W,15B,9W,4B,28W,4B,9W,19B,7W,4B,30W,3B,33W,5B,9W,15B,9W,5B,9W,3B,9W,15B,9W,1B,*
+DATA 7B,39W,3B,9W,16B,9W,3B,29W,3B,9W,21B,5W,4B,31W,3B,34W,3B,9W,16B,9W,4B,9W,3B,9W,16B,9W,1B,*
+DATA 9B,37W,3B,9W,15B,9W,3B,29W,4B,9W,30B,30W,4B,34W,3B,9W,15B,9W,5B,9W,3B,9W,15B,9W,2B,*
+DATA 36B,9W,4B,9W,15B,9W,2B,30W,4B,9W,30B,30W,4B,34W,3B,9W,15B,9W,5B,9W,3B,9W,15B,9W,2B,*
+DATA 6B,2W,28B,9W,3B,9W,16B,9W,2B,30W,3B,9W,30B,30W,5B,34W,2B,9W,16B,9W,4B,9W,3B,9W,16B,9W,2B,*
+DATA 3B,7W,26B,9W,3B,9W,16B,9W,1B,31W,3B,9W,22B,2W,6B,30W,5B,34W,2B,9W,16B,9W,4B,9W,3B,9W,16B,9W,2B,*
+DATA 2B,8W,26B,9W,3B,9W,15B,9W,2B,30W,4B,9W,19B,7W,4B,29W,7B,33W,2B,9W,15B,9W,5B,9W,3B,9W,15B,9W,3B,*
+DATA 2B,8W,25B,9W,4B,9W,15B,9W,2B,30W,4B,9W,19B,7W,4B,27W,10B,32W,2B,9W,15B,9W,5B,9W,3B,9W,15B,9W,3B,*
+DATA 1B,9W,25B,9W,3B,9W,16B,9W,1B,31W,3B,9W,19B,9W,2B,26W,15B,29W,1B,9W,16B,9W,4B,9W,3B,9W,16B,9W,3B,*
+DATA 1B,9W,24B,10W,3B,9W,15B,9W,2B,9W,13B,8W,4B,9W,19B,8W,3B,9W,52B,9W,1B,9W,16B,9W,4B,9W,3B,9W,15B,9W,4B,*
+DATA 1B,42W,4B,33W,2B,30W,4B,36W,3B,28W,7B,34W,2B,9W,15B,9W,5B,9W,3B,33W,4B,*
+DATA 1B,42W,4B,33W,2B,30W,4B,36W,3B,29W,4B,36W,2B,9W,15B,9W,5B,9W,3B,33W,4B,*
+DATA 43W,3B,33W,2B,31W,3B,37W,2B,30W,4B,36W,1B,9W,16B,9W,4B,9W,3B,33W,5B,*
+DATA 42W,4B,33W,2B,30W,4B,36W,3B,30W,3B,36W,2B,9W,16B,8W,5B,9W,3B,33W,5B,*
+DATA 42W,4B,32W,3B,30W,4B,36W,3B,30W,3B,36W,2B,9W,15B,9W,5B,9W,3B,32W,6B,*
+DATA 41W,5B,31W,4B,30W,4B,36W,3B,30W,3B,35W,3B,9W,15B,9W,5B,9W,3B,31W,7B,*
+DATA 40W,5B,32W,4B,30W,4B,35W,4B,30W,2B,35W,3B,9W,16B,9W,4B,9W,3B,32W,7B,*
+DATA 1B,38W,6B,31W,6B,28W,6B,33W,6B,28W,3B,34W,4B,9W,16B,8W,5B,9W,3B,31W,8B,*
+DATA 1B,37W,7B,29W,8B,28W,6B,32W,7B,27W,5B,32W,6B,7W,17B,8W,6B,7W,4B,29W,10B,*
+DATA 2B,34W,8B,28W,11B,27W,7B,29W,10B,25W,6B,30W,8B,6W,19B,5W,8B,6W,4B,28W,12B,*
+DATA 44B,9W,220B,9W,31B,*
+DATA 44B,9W,220B,9W,31B,*
+DATA 44B,9W,220B,9W,31B,*
+DATA 43B,9W,220B,9W,32B,*
+DATA 43B,9W,220B,9W,32B,*
+DATA 43B,9W,220B,9W,32B,*
+DATA 43B,9W,220B,9W,32B,*
+DATA 42B,9W,220B,9W,33B,*
+DATA 42B,9W,220B,9W,33B,*
+DATA 42B,8W,221B,8W,34B,*
+DATA 43B,6W,223B,6W,35B,*
+DATA 44B,3W,226B,3W,37B,*
+
 FUNCTION GetButton (Name$, DeviceID AS INTEGER)
     DIM i AS INTEGER
     STATIC LastDevice AS INTEGER
@@ -1379,6 +1485,7 @@ SUB CreateBonus
     SHARED ShipSize AS _BYTE, Shield AS _BYTE, SNDShieldAPPEAR, Recharge AS _BYTE
     SHARED Freeze, SNDBlizzard
     SHARED LastLife#, LastEnergy#, LastShield#, LastFreeze#
+    SHARED totalfreeze
 
     IF Recharge THEN EXIT SUB
 
@@ -1432,7 +1539,7 @@ SUB CreateBonus
                 Bonus.Speed# = .08
             END IF
         CASE 4 'Freeze power
-            IF GetTICKS - LastFreeze# > 120 AND Freeze = 0 THEN
+            IF GetTICKS - LastFreeze# > 90 AND Freeze = 0 AND totalfreeze < 3 THEN
                 PlaySound SNDBlizzard
                 LastFreeze# = GetTICKS
                 Bonus.Type$ = "FREEZE"
@@ -1671,8 +1778,8 @@ SUB DrawElements
     END IF
 
     'enemies too
+    VisibleEnemies = 0
     FOR id = 1 TO MaxEnemies
-
         IF Enemies(id).Color = -1 THEN
             COLOR _CEIL(RND * 14) + 1
         ELSEIF Enemies(id).Color = -2 THEN 'Custom color pattern
@@ -1684,9 +1791,11 @@ SUB DrawElements
         x = 1
         y = 1
         c = 1
+        AnyPartVisible = 0
         DO
         IF Enemies(id).X + (x - 1) > 0 AND Enemies(id).X + (x - 1) <= 80 AND _
             Enemies(id).Y + (y - 1) > 1 AND Enemies(id).Y + (y - 1) <= 25 THEN 'Visible?
+                AnyPartVisible = -1
                 Char$ = MID$(Enemies(id).Shape, c, 1)
                 IF Char$ = " " THEN Char$ = ""
                 _PRINTSTRING (Enemies(id).X + x - 1, Enemies(id).Y + y - 1), Char$
@@ -1697,15 +1806,15 @@ SUB DrawElements
             IF x > Enemies(id).Width THEN x = 1: y = y + 1
             IF y > Enemies(id).Height THEN EXIT DO
         LOOP
-
+        IF AnyPartVisible THEN VisibleEnemies = VisibleEnemies + 1
     NEXT
 END SUB
 
 SUB PlaySound (Handle&)
-    IF Mute THEN EXIT SUB
-    IF Handle THEN _SNDPLAYCOPY Handle&
-END SUB
+    IF Handle& = 0 OR Mute THEN EXIT SUB
 
+    _SNDPLAYCOPY Handle&
+END SUB
 
 SUB SetLevel (Which)
     SHARED StarFieldSpeed AS DOUBLE, EnemiesSpeed AS DOUBLE
@@ -1824,3 +1933,32 @@ SUB KillEnemy (id, Strength)
     END IF
     CreateEnemy id, Chapter
 END SUB
+
+FUNCTION RestoreImage& (PixelColor~&)
+    'This function must be called after RESTORE is used to
+    'point to the correct DATA block
+    READ w
+    READ h
+    a& = _NEWIMAGE(w, h, 32)
+    PrevDEST& = _DEST
+    _DEST a&
+    ih = 0: iw = 0
+    DO
+        READ b$
+        IF b$ = "*" THEN
+            ih = ih + 1
+            iw = 0
+            IF ih = h THEN EXIT DO
+        END IF
+        c% = VAL(LEFT$(b$, LEN(b$) - 1))
+        IF RIGHT$(b$, 1) = "W" THEN
+            FOR p = iw TO iw + c%
+                PSET (p, ih), PixelColor~&
+            NEXT
+        END IF
+        iw = iw + c%
+    LOOP
+    RestoreImage& = _COPYIMAGE(a&, 33)
+    _FREEIMAGE a&
+    _DEST PrevDEST&
+END FUNCTION
