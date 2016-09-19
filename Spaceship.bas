@@ -1,24 +1,24 @@
 'Spaceship, by @FellippeHeitor (2016)
 '--------------------------------------------------------------------------
 $RESIZE:SMOOTH
-'_FULLSCREEN
 
 DECLARE LIBRARY
     FUNCTION GetUptime ALIAS GetTicks
 END DECLARE
 
-CONST godMode = 0
+CONST godMode = -1
 
+IF godMode THEN _FULLSCREEN
 $EXEICON:'.\ship.ico'
 _ICON
 _SCREENMOVE _MIDDLE
 _TITLE "Spaceship"
 DEFLNG A-Z
 
-DIM SONG(1 TO 3) AS LONG
+DIM SHARED SONG(1 TO 3) AS LONG
 Path$ = "Audio\"
-SONG(1) = _SNDOPEN(Path$ + "levelintro.ogg", "SYNC,PAUSE,LEN")
-IF SONG(1) THEN _SNDLOOP SONG(1)
+SONG(1) = _SNDOPEN(Path$ + "levelintro.ogg", "SYNC,PAUSE")
+PlaySong SONG(1)
 
 ' declare constants and types
 CONST MaxStars = 15
@@ -36,12 +36,16 @@ TYPE ObjectsTYPE
     Width AS INTEGER
     Height AS INTEGER
     Color AS INTEGER
+    LastFrameUpdate AS DOUBLE
     ColorPattern AS STRING * 256
     ColorSteps AS INTEGER
     CurrentColorStep AS INTEGER
-    Shape AS STRING * 256
+    Shape AS STRING * 4000
+    TotalShapes AS INTEGER
+    CurrentShape AS INTEGER
     Points AS INTEGER
     Hits AS INTEGER
+    IsVisible AS _BYTE
     RelativeSpeed AS INTEGER
     Char AS STRING * 1
     Size AS INTEGER
@@ -64,6 +68,8 @@ DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS DOUBLE
 DIM SHARED GoalAchieved AS _BYTE, ChapterGoal AS INTEGER
 DIM SHARED KilledEnemies AS INTEGER, Countdown#
 DIM SHARED WeKilledFirst AS _BYTE
+DIM SHARED GameMode AS _BYTE
+DIM SHARED BossFight AS _BYTE
 DIM SHARED VisibleEnemies AS INTEGER
 DIM Collision AS _BYTE
 DIM row AS SINGLE, RoundRow AS INTEGER
@@ -314,26 +320,25 @@ DIM SNDLaser1, SNDLaser2, SNDShipDamage, SNDShipGrow, SNDEnergyUP
 DIM SNDExplosion, SNDOutOfEnergy, SNDExtraLife, SNDShieldOFF
 DIM SNDIntercom, SNDBlizzard
 
-SNDBlizzard = _SNDOPEN(Path$ + "Blizzard.wav", "SYNC,LEN")
-SNDIntercom = _SNDOPEN(Path$ + "Intercom.wav", "SYNC,LEN")
-SNDCatchEnergy = _SNDOPEN(Path$ + "CatchEnergy.wav", "SYNC,LEN")
-SNDFullRecharge = _SNDOPEN(Path$ + "FullRecharge.wav", "SYNC,LEN")
-SNDShieldAPPEAR = _SNDOPEN(Path$ + "ShieldAPPEAR.wav", "SYNC,LEN")
-SNDShieldON = _SNDOPEN(Path$ + "ShieldON.wav", "SYNC,LEN")
-SNDShieldOFF = _SNDOPEN(Path$ + "ShieldOFF.wav", "SYNC,LEN")
-SNDLaser1 = _SNDOPEN(Path$ + "Laser1.wav", "SYNC,LEN")
-SNDLaser2 = _SNDOPEN(Path$ + "Laser2.wav", "SYNC,LEN")
-SNDShipDamage = _SNDOPEN(Path$ + "ShipDamage.wav", "SYNC,LEN")
-SNDShipGrow = _SNDOPEN(Path$ + "ShipGrow.wav", "SYNC,LEN")
-SNDEnergyUP = _SNDOPEN(Path$ + "EnergyUP.wav", "SYNC,LEN")
-SNDExplosion = _SNDOPEN(Path$ + "Explosion1.wav", "SYNC,LEN")
-SNDOutOfEnergy = _SNDOPEN(Path$ + "OutOfEnergy.wav", "SYNC,LEN")
-SNDExtraLife = _SNDOPEN(Path$ + "ExtraLife.wav", "SYNC,LEN")
-SONG(2) = _SNDOPEN(Path$ + "bossfight.ogg", "SYNC,PAUSE,LEN")
-SONG(3) = _SNDOPEN(Path$ + "level1.ogg", "SYNC,PAUSE,LEN")
+SNDBlizzard = _SNDOPEN(Path$ + "Blizzard.wav", "SYNC")
+SNDIntercom = _SNDOPEN(Path$ + "Intercom.wav", "SYNC")
+SNDCatchEnergy = _SNDOPEN(Path$ + "CatchEnergy.wav", "SYNC")
+SNDFullRecharge = _SNDOPEN(Path$ + "FullRecharge.wav", "SYNC")
+SNDShieldAPPEAR = _SNDOPEN(Path$ + "ShieldAPPEAR.wav", "SYNC")
+SNDShieldON = _SNDOPEN(Path$ + "ShieldON.wav", "SYNC")
+SNDShieldOFF = _SNDOPEN(Path$ + "ShieldOFF.wav", "SYNC")
+SNDLaser1 = _SNDOPEN(Path$ + "Laser1.wav", "SYNC")
+SNDLaser2 = _SNDOPEN(Path$ + "Laser2.wav", "SYNC")
+SNDShipDamage = _SNDOPEN(Path$ + "ShipDamage.wav", "SYNC")
+SNDShipGrow = _SNDOPEN(Path$ + "ShipGrow.wav", "SYNC")
+SNDEnergyUP = _SNDOPEN(Path$ + "EnergyUP.wav", "SYNC")
+SNDExplosion = _SNDOPEN(Path$ + "Explosion1.wav", "SYNC")
+SNDOutOfEnergy = _SNDOPEN(Path$ + "OutOfEnergy.wav", "SYNC")
+SNDExtraLife = _SNDOPEN(Path$ + "ExtraLife.wav", "SYNC")
+SONG(2) = _SNDOPEN(Path$ + "bossfight.ogg", "SYNC,PAUSE")
+SONG(3) = _SNDOPEN(Path$ + "level1.ogg", "SYNC,PAUSE")
 
-IF SONG(1) THEN _SNDSTOP SONG(1)
-IF SONG(3) <> 0 THEN _SNDLOOP SONG(3)
+PlaySong SONG(3)
 
 'Generate smoke images --------------------------------------------
 SmokeCanvas = _NEWIMAGE(3 * _FONTWIDTH, _FONTHEIGHT, 32)
@@ -414,7 +419,7 @@ InitialSetup = -1
 ShipColor = 14
 StarFieldSpeed = .08
 WeKilledFirst = 0
-GameMode = EASY
+GameMode = HARD
 
 'Wait until all buttons are released:
 DO
@@ -427,11 +432,11 @@ DO
     IF godMode AND UCASE$(k$) = "F" THEN Freeze = NOT Freeze: IF Freeze THEN FreezeInitiated# = GetTICKS
     IF Mute THEN
         IF NOT Pause THEN
-            IF _SNDPLAYING(SONG(Level + 2)) THEN _SNDPAUSE SONG(Level + 2)
+            PauseSong
         END IF
     ELSE
-        IF NOT Pause AND NOT _SNDPLAYING(SONG(Level + 2)) THEN
-            IF SONG(Level + 2) THEN _SNDLOOP SONG(Level + 2)
+        IF NOT Pause THEN
+            IF NOT BossFight THEN PlaySong SONG(Level + 2) ELSE PlaySong SONG(2)
         END IF
     END IF
     IF godMode AND UCASE$(k$) = "L" THEN PlaySound SNDFullRecharge: SetLevel Chapter + 1
@@ -477,15 +482,15 @@ DO
         Pause = NOT Pause
         IF Pause THEN
             LastPause# = (GetUptime / 1000)
-            IF _SNDPLAYING(SONG(Level + 2)) THEN
-                IF SONG(Level + 2) THEN _SNDPAUSE SONG(Level + 2)
-            END IF
+            PauseSong
+            _DISPLAYORDER _SOFTWARE , _HARDWARE
         ELSE
             PauseOffset# = PauseOffset# + ((GetUptime / 1000) - LastPause#)
             LastPause# = (GetUptime / 1000)
             IF NOT Mute THEN
-                IF SONG(Level + 2) THEN _SNDPLAY SONG(Level + 2)
+                IF NOT BossFight THEN PlaySong SONG(Level + 2) ELSE PlaySong SONG(2)
             END IF
+            _DISPLAYORDER _HARDWARE , _SOFTWARE
         END IF
     END IF
 
@@ -555,7 +560,7 @@ DO
                 END IF
                 Enemies(id).CurrentMoveStep = Enemies(id).CurrentMoveStep MOD Enemies(id).MoveSteps + 1
                 Enemies(id).Y = Enemies(id).Y + MoveY
-                IF MoveY THEN Enemies(id).X = Enemies(id).X - 1
+                IF MoveY <> 0 AND GameMode = HARD THEN Enemies(id).X = Enemies(id).X - 1
 
                 IF Enemies(id).CanReverse THEN
                     'Enemies that reach a screen boundary will have their
@@ -580,14 +585,20 @@ DO
                     CreateEnemy id, Chapter
                 END IF
 
-                'Enemy shoots when aligned (or close to aligning) with hero:
-                '(Enemies only shoot if they've been attacked first)
                 IF Enemies(id).CanShoot AND WeKilledFirst THEN
-                    IF Enemies(id).X > x AND Enemies(id).X <= x + 30 THEN
-                        IF Enemies(id).Y >= INT(y / 2) - 3 AND Enemies(id).Y <= INT(y / 2) + 3 THEN
-                            ShootingID = id
-                            GOSUB EnemyShotsFired
-                        END IF
+                    'Enemy shoots when aligned (or close to aligning) with hero:
+                    '(Enemies only shoot if they've been attacked first)
+                    'IF Enemies(id).X > x AND Enemies(id).X <= x + 30 THEN
+                    '    IF Enemies(id).Y >= INT(y / 2) - 6 AND Enemies(id).Y <= INT(y / 2) + 6 THEN
+                    '        ShootingID = id
+                    '        GOSUB EnemyShotsFired
+                    '    END IF
+                    'END IF
+
+                    'If enemy is visible, make it shoot:
+                    IF Enemies(id).IsVisible THEN
+                        ShootingID = id
+                        GOSUB EnemyShotsFired
                     END IF
                 END IF
             END IF
@@ -662,7 +673,7 @@ DO
     END IF
 
     'Enemies' lasers:
-    IF Alive = -1 AND Recharge = 0 AND Pause = 0 THEN
+    IF Alive = -1 AND Recharge = 0 AND Pause = 0 AND GameMode = HARD THEN
         FOR i = 1 TO MaxEnemyBeams
             IF GetTICKS - EnemyBeams(i).StartTime < .8 OR Freeze THEN 'Enemy laser beams last for .8 seconds
                 l = 0
@@ -696,6 +707,8 @@ DO
                 FOR l = 0 TO Beams(i).Size - 1
                     IF Beams(i).X + l <= 80 THEN
                         COLOR ShipColor - 8
+                        IF GetTICKS - Beams(i).StartTime < .2 THEN COLOR 14
+                        IF GetTICKS - Beams(i).StartTime < .1 THEN COLOR 15
                         IF GetTICKS - Beams(i).StartTime > .5 THEN COLOR 1
                         _PRINTSTRING (Beams(i).X + l, Beams(i).Y), Beams(i).Char
                         ThisPoint = FIX(ScreenMap(Beams(i).X + l, Beams(i).Y))
@@ -713,7 +726,7 @@ DO
                             Points = Points + Enemies(CheckEnemy).Points
                             PointGoesUp! = 0: LastEarnedPoints = Enemies(CheckEnemy).Points
                             PlaySound SNDExplosion
-                        ELSEIF ThisPoint = ScreenMap.Bonus THEN
+                        ELSEIF ThisPoint = ScreenMap.Bonus AND GameMode = HARD THEN
                             Boom.X = Beams(i).X + l
                             Boom.Y = Beams(i).Y * 2
                             EnemyExplosion = -1
@@ -1096,12 +1109,12 @@ DO
             COLOR 15, 4
             _PRINTSTRING (_WIDTH \ 2 - LEN(DeathMessage$) \ 2, _HEIGHT \ 2), DeathMessage$
             IF ExplosionAnimationStep = 8 THEN
-                Lives = Lives - 1
                 Energy = 0
                 GOSUB UpdateStats
                 _DISPLAY
-                IF SONG(Level + 2) <> 0 THEN _SNDSTOP SONG(Level + 2)
+                StopSong
                 _DELAY 1
+                Lives = Lives - 1
                 LastShipGrow# = GetTICKS
                 Alive = -1
                 Shield = 0
@@ -1115,7 +1128,7 @@ DO
                     CreateEnemy id, Chapter
                 NEXT
                 ShowChapterName# = GetTICKS
-                IF SONG(Level + 2) <> 0 THEN _SNDLOOP SONG(Level + 2)
+                PlaySong SONG(Level + 2)
                 x = 5
                 y = 25
             ELSE
@@ -1186,7 +1199,7 @@ IF NewBeam > MaxEnemyBeams THEN RETURN 'No available beam slots
 
 'Check for the last beam StartTime so
 'we don't fire multiple lasers too quickly:
-IF GetTICKS - LastEnemyBeam# < .8 THEN RETURN
+IF GetTICKS - LastEnemyBeam# < .5 THEN RETURN
 LastEnemyBeam# = GetTICKS
 
 EnemyBeams(NewBeam).ID = ShootingID
@@ -1566,8 +1579,23 @@ SUB ReverseEnemyPattern (id)
     NEXT i
 END SUB
 
+SUB MakeEnemyEscape (id)
+    'Some will go up, some will go down.
+    IF Enemies(id).Y > 12 THEN
+        m$ = MKI$(-1)
+    ELSE
+        m$ = MKI$(1)
+    END IF
+    Enemies(id).CanReverse = 0
+    Enemies(id).MovePattern = m$
+    Enemies(id).MoveSteps = LEN(m$) / 2
+    Enemies(id).CurrentMoveStep = 1
+    Enemies(id).CanShoot = 0
+END SUB
+
 SUB CreateEnemy (id, Chapter)
     SHARED Energy AS SINGLE, RoundRow AS INTEGER
+
     DIM a AS _BYTE
     IF Bonus.Active = 0 THEN CreateBonus
     SELECT CASE Chapter
@@ -1579,9 +1607,9 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).Points = 50
                 Enemies(id).RelativeSpeed = 1 'INT(RND * 2 + 1)
                 Enemies(id).Hits = 2
-                Enemies(id).Shape = CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(222) + CHR$(219) + CHR$(178) + CHR$(177) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223)
-                Enemies(id).Width = 5
-                Enemies(id).Height = 3
+                RESTORE EnemyShip1
+                GOSUB LoadShape
+                Enemies(id).CurrentShape = _CEIL(RND * 2)
                 'Some will go up, some will go down.
                 IF Enemies(id).Y > 12 THEN
                     m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1)
@@ -1600,6 +1628,8 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).Points = 25
                 Enemies(id).RelativeSpeed = 2 'INT(RND * 2 + 1)
                 Enemies(id).Shape = CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(176) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32)
+                Enemies(id).TotalShapes = 1
+                Enemies(id).CurrentShape = 1
                 Enemies(id).Width = 5
                 Enemies(id).Height = 3
                 'Some will go up, some will go down.
@@ -1629,7 +1659,11 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).Points = 100
                 Enemies(id).RelativeSpeed = _CEIL(RND * 2)
                 Enemies(id).Hits = 2
-                Enemies(id).Shape = CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(219) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32)
+                ThisDesign$ = CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(222) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32)
+                ThisDesign$ = ThisDesign$ + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(8) + CHR$(219) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32) + CHR$(32) + CHR$(32) + CHR$(32)
+                Enemies(id).Shape = ThisDesign$
+                Enemies(id).TotalShapes = 2
+                Enemies(id).CurrentShape = _CEIL(RND * 2)
                 Enemies(id).Width = 15
                 Enemies(id).Height = 5
                 IF Enemies(id).Y > 12 THEN
@@ -1669,6 +1703,8 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).Points = 50
                 Enemies(id).RelativeSpeed = 1
                 Enemies(id).Shape = CHR$(32) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(32) + CHR$(222) + CHR$(219) + CHR$(176) + CHR$(221) + CHR$(32) + CHR$(32) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(32)
+                Enemies(id).TotalShapes = 1
+                Enemies(id).CurrentShape = 1
                 Enemies(id).Width = 5
                 Enemies(id).Height = 3
                 'Some will go up, some will go down.
@@ -1686,19 +1722,19 @@ SUB CreateEnemy (id, Chapter)
             END IF
         CASE 4
             IF Enemies(id).Hits <= 0 THEN
-                Enemies(id).X = 80 + _CEIL(RND * 20)
+                Enemies(id).X = 80 + _CEIL(RND * 80)
                 Enemies(id).Y = _CEIL(RND * 24) + 1
                 Enemies(id).Color = -2
                 m$ = MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(9) + MKI$(3) + MKI$(9) + MKI$(3) + MKI$(9) + MKI$(3)
                 Enemies(id).ColorPattern = m$
                 Enemies(id).ColorSteps = LEN(m$) / 2
                 Enemies(id).CurrentColorStep = 1
-                Enemies(id).Hits = 1
+                Enemies(id).Hits = 100
                 Enemies(id).Points = 50
                 Enemies(id).RelativeSpeed = 1
-                Enemies(id).Shape = CHR$(223) + CHR$(32) + CHR$(32) + CHR$(176) + CHR$(176) + CHR$(177) + CHR$(177) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(220) + CHR$(176) + CHR$(221) + CHR$(219) + CHR$(178) + CHR$(176) + CHR$(177) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(176) + CHR$(32) + CHR$(220) + CHR$(32) + CHR$(32) + CHR$(176) + CHR$(176) + CHR$(177) + CHR$(177) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(223) + CHR$(176)
-                Enemies(id).Width = 13
-                Enemies(id).Height = 3
+                Enemies(id).CurrentShape = 1 '_CEIL(RND * 2)
+                RESTORE SpaceAmoeba
+                GOSUB LoadShape:
                 'Some will go up, some will go down.
                 m$ = MKI$(0) + MKI$(0) + MKI$(0) + MKI$(0) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1) + MKI$(-1)
                 Enemies(id).Chase = 0
@@ -1712,6 +1748,37 @@ SUB CreateEnemy (id, Chapter)
                 Enemies(id).CanShoot = -1
             END IF
     END SELECT
+
+    EXIT SUB
+    LoadShape:
+    READ Enemies(id).Width, Enemies(id).Height, Enemies(id).TotalShapes
+    FOR i = 1 TO (Enemies(id).Width * Enemies(id).Height * Enemies(id).TotalShapes)
+        READ ThisChar
+        ASC(Enemies(id).Shape, i) = ThisChar
+    NEXT
+    RETURN
+
+    EnemyShip1:
+    DATA 5,3,2,32,32,220,220,220,222,219,178,177,221,32,32,223,223,223,32,32,220,220,220,222,219,176,176,221,32,32,223,223,223
+
+    SpaceAmoeba:
+    DATA 32,14,8
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,220,220,220,220,220,220,220,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,32,223,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,223,223,223,223,223,223,223,223,223,223,223,223,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,220,220,220,220,220,220,220,220,220,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,223,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,223,223,223,223,223,223,223,223,223,223,223,223,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,220,220,220,220,220,220,220,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,32,223,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,223,223,223,223,223,223,223,223,223,223,223,223,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,220,220,220,220,220,220,220,220,220,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,220,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,223,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,223,223,223,223,223,223,223,223,223,223,223,223,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,220,220,220,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,32,32,220,220,220,176,176,176,176,176,176,220,220,220,32,32,220,220,32,32,32,32,32,32,32,32,32,32,32,222,176,176,220,220,176,176,176,176,176,176,176,176,176,176,176,176,220,220,176,176,222,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,222,176,176,176,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,223,176,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,223,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,223,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,223,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,223,223,223,223,176,176,176,176,176,176,223,223,176,176,176,176,176,176,223,223,223,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,223,223,223,223,223,32,32,223,223,223,223,223,223,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,4,4,4,4,4,4,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,4,4,32,32,4,4,4,176,176,176,176,176,176,4,4,4,32,32,4,4,32,32,32,32,32,32,32,32,32,32,32,4,176,176,4,4,176,176,176,176,176,176,176,176,176,176,176,176,4,4,176,176,4,32,32,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,32,4,4,4,4,176,176,176,176,176,176,4,4,176,176,176,176,176,176,4,4,4,4,32,32,32,32,32,32,32,32,32,32,32,32,32,32,4,4,4,4,4,4,32,32,4,4,4,4,4,4,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,220,220,220,220,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,220,220,32,32,220,220,220,176,176,176,176,176,176,220,220,220,32,32,220,220,32,32,32,32,32,32,32,32,32,32,32,222,176,176,220,220,176,176,176,176,176,176,176,176,176,176,176,176,220,220,176,176,222,32,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,222,176,176,176,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,223,176,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,223,32,32,32,32,32,32,32,32,220,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,220,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,223,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,223,32,32,32,32,32,32,32,32,222,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,222,32,32,32,32,32,32,32,32,32,223,223,223,223,176,176,176,176,176,176,223,223,176,176,176,176,176,176,223,223,223,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,223,223,223,223,223,32,32,223,223,223,223,223,223,32,32,32,32,32,32,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,4,4,4,4,4,4,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,4,4,32,32,4,4,4,176,176,176,176,176,176,4,4,4,32,32,4,4,32,32,32,32,32,32,32,32,32,32,32,4,176,176,4,4,176,176,176,176,176,176,176,176,176,176,176,176,4,4,176,176,4,32,32,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,251,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,251,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,8,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,4,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,176,4,32,32,32,32,32,32,32,32,32,4,4,4,4,176,176,176,176,176,176,4,4,176,176,176,176,176,176,4,4,4,4,32,32,32,32,32,32,32,32,32,32,32,32,32,32,4,4,4,4,4,4,32,32,4,4,4,4,4,4,32,32,32,32,32,32,32,32,32
+
+    Cockroach:
+    DATA 28,14,4
+    DATA 32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,220,220,220,220,220,220,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,220,176,176,176,176,176,176,220,32,178,32,32,32,32,32,32,32,32,178,178,178,178,32,32,32,32,178,220,176,176,178,176,176,178,176,176,220,178,32,32,32,32,178,178,178,178,32,32,32,32,178,178,178,32,220,176,176,178,176,176,176,176,178,176,176,220,32,178,178,178,32,32,32,32,32,32,32,32,32,32,32,178,176,176,178,176,176,176,176,176,176,178,176,176,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,176,176,176,178,176,176,176,176,178,176,176,176,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,176,176,176,178,176,176,178,176,176,176,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,223,176,178,176,176,176,176,178,176,223,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,223,176,178,176,176,178,176,223,32,32,178,32,32,32,32,32,32,32,178,178,178,32,32,32,32,178,32,32,32,223,223,223,223,223,223,32,32,32,178,32,32,32,32,178,178,178,32,32,32,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,178,178,178,32,32,32
+    DATA 32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,220,220,220,220,220,220,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,220,176,176,176,176,176,176,220,32,32,178,32,32,32,32,32,32,32,178,178,178,32,32,32,32,32,178,220,176,176,178,176,176,178,176,176,220,178,32,32,32,32,32,178,178,178,32,32,32,178,32,32,32,32,220,176,176,178,176,176,176,176,178,176,176,220,32,32,32,32,178,32,32,32,32,32,32,32,178,178,178,178,176,176,178,176,176,176,176,176,176,178,176,176,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,176,176,176,178,176,176,176,176,178,176,176,176,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,176,176,176,178,176,176,178,176,176,176,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,223,176,178,176,176,176,176,178,176,223,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,223,176,178,176,176,178,176,223,32,32,178,32,32,32,32,32,32,32,178,178,178,32,32,32,32,178,32,32,32,223,223,223,223,223,223,32,32,32,178,32,32,32,32,178,178,178,32,32,32,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,178,178,178,32,32,32
+    DATA 32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,178,178,32,32,32,32,32,32,32,220,220,220,220,220,220,32,32,32,32,32,32,32,178,178,178,32,32,32,32,32,178,178,178,32,32,32,220,176,176,176,176,176,176,220,32,32,32,178,178,178,32,32,32,32,178,178,178,32,32,32,32,178,178,220,176,176,178,176,176,178,176,176,220,178,178,32,32,32,32,178,178,178,32,32,32,178,32,32,32,32,220,176,176,178,176,176,176,176,178,176,176,220,32,32,32,32,178,32,32,32,32,32,32,32,178,178,178,178,176,176,178,176,176,176,176,176,176,178,176,176,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,176,176,176,178,176,176,176,176,178,176,176,176,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,176,176,176,178,176,176,178,176,176,176,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,223,176,178,176,176,176,176,178,176,223,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,223,176,178,176,176,178,176,223,32,32,178,32,32,32,32,32,32,32,178,178,178,32,32,32,32,178,32,32,32,223,223,223,223,223,223,32,32,32,178,32,32,32,32,178,178,178,32,32,32,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,178,178,178,32,32,32
+    DATA 32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,32,32,220,220,220,220,220,220,32,32,32,32,178,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,220,176,176,176,176,176,176,220,32,32,178,32,32,32,32,32,32,32,178,178,178,32,32,32,32,32,178,220,176,176,178,176,176,178,176,176,220,178,32,32,32,32,32,178,178,178,32,32,32,178,32,32,32,32,220,176,176,178,176,176,176,176,178,176,176,220,32,32,32,32,178,32,32,32,32,32,32,32,178,178,178,178,176,176,178,176,176,176,176,176,176,178,176,176,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,176,176,176,178,176,176,176,176,178,176,176,176,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,223,176,176,176,178,176,176,178,176,176,176,223,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,223,176,178,176,176,176,176,178,176,223,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,32,32,223,176,178,176,176,178,176,223,32,32,178,32,32,32,32,32,32,32,178,178,178,32,32,32,32,178,32,32,32,223,223,223,223,223,223,32,32,32,178,32,32,32,32,178,178,178,32,32,32,178,178,178,178,32,32,32,32,32,32,32,32,32,32,32,32,32,32,178,178,178,178,32,32,32
+
 END SUB
 
 SUB DrawElements
@@ -1780,6 +1847,12 @@ SUB DrawElements
     'enemies too
     VisibleEnemies = 0
     FOR id = 1 TO MaxEnemies
+        'Rotate enemy's shape frames
+        IF (GetUptime / 1000) - Enemies(id).LastFrameUpdate > .3 THEN
+            Enemies(id).LastFrameUpdate = (GetUptime / 1000)
+            Enemies(id).CurrentShape = Enemies(id).CurrentShape MOD Enemies(id).TotalShapes + 1
+        END IF
+
         IF Enemies(id).Color = -1 THEN
             COLOR _CEIL(RND * 14) + 1
         ELSEIF Enemies(id).Color = -2 THEN 'Custom color pattern
@@ -1792,14 +1865,18 @@ SUB DrawElements
         y = 1
         c = 1
         AnyPartVisible = 0
+        Enemies(id).IsVisible = 0
+        TotalShapeChars = (Enemies(id).Width * Enemies(id).Height)
+        ThisShape$ = MID$(Enemies(id).Shape, Enemies(id).CurrentShape * TotalShapeChars - TotalShapeChars + 1, TotalShapeChars)
         DO
         IF Enemies(id).X + (x - 1) > 0 AND Enemies(id).X + (x - 1) <= 80 AND _
             Enemies(id).Y + (y - 1) > 1 AND Enemies(id).Y + (y - 1) <= 25 THEN 'Visible?
                 AnyPartVisible = -1
-                Char$ = MID$(Enemies(id).Shape, c, 1)
-                IF Char$ = " " THEN Char$ = ""
-                _PRINTSTRING (Enemies(id).X + x - 1, Enemies(id).Y + y - 1), Char$
-                IF Char$ <> CHR$(32) THEN ScreenMap(Enemies(id).X + x - 1, Enemies(id).Y + y - 1) = -id
+                Char$ = MID$(ThisShape$, c, 1)
+                IF Char$ <> " " THEN
+                    _PRINTSTRING (Enemies(id).X + x - 1, Enemies(id).Y + y - 1), Char$
+                    ScreenMap(Enemies(id).X + x - 1, Enemies(id).Y + y - 1) = -id
+                END IF
             END IF
             c = c + 1
             x = x + 1
@@ -1807,6 +1884,7 @@ SUB DrawElements
             IF y > Enemies(id).Height THEN EXIT DO
         LOOP
         IF AnyPartVisible THEN VisibleEnemies = VisibleEnemies + 1
+        Enemies(id).IsVisible = -1
     NEXT
 END SUB
 
@@ -1814,6 +1892,30 @@ SUB PlaySound (Handle&)
     IF Handle& = 0 OR Mute THEN EXIT SUB
 
     _SNDPLAYCOPY Handle&
+END SUB
+
+SUB PlaySong (Handle&)
+    IF Handle& = 0 OR Mute THEN EXIT SUB
+
+    FOR i = 1 TO UBOUND(SONG)
+        IF Handle& <> SONG(i) THEN
+            IF SONG(i) THEN _SNDSTOP SONG(i)
+        END IF
+    NEXT
+
+    IF NOT _SNDPLAYING(Handle&) THEN _SNDLOOP Handle&
+END SUB
+
+SUB PauseSong
+    FOR i = 1 TO UBOUND(SONG)
+        IF SONG(i) THEN _SNDPAUSE SONG(i)
+    NEXT
+END SUB
+
+SUB StopSong
+    FOR i = 1 TO UBOUND(SONG)
+        IF SONG(i) THEN _SNDSTOP SONG(i)
+    NEXT
 END SUB
 
 SUB SetLevel (Which)
@@ -1829,19 +1931,17 @@ SUB SetLevel (Which)
     GoalAchieved = 0
     KilledEnemies = 0
     Countdown# = 0
+    BossFight = 0
 
     SELECT CASE Which
         CASE 1
             StarFieldSpeed = .08
             EnemiesSpeed = .08
             IF MaxEnemies = 0 THEN MaxEnemies = 10
-            FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
-            NEXT
             MaxEnemies = 10
             Chapter = Which
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
+                IF Enemies(id).Hits > 0 THEN MakeEnemyEscape id ELSE CreateEnemy id, Chapter
             NEXT
             ChapterName$ = " LET THERE BE WAR! "
             ChapterTips$ = CHR$(0) + "BASE:BEST OF LUCK, CAPTAIN."
@@ -1860,22 +1960,16 @@ SUB SetLevel (Which)
             ChapterTips.Position = 1
             ShowChapterName# = GetTICKS
             ChapterGoal = 50
-            FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
-            NEXT
             Chapter = Which
             MaxEnemies = 10
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
+                IF Enemies(id).Hits > 0 THEN MakeEnemyEscape id ELSE CreateEnemy id, Chapter
             NEXT
         CASE 3
             StarFieldSpeed = .08
             EnemiesSpeed = .1
-            FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
-            NEXT
             Chapter = Which
-            ChapterName$ = " SPACE KAMIKAZE "
+            ChapterName$ = " KAMIKAZE FRENZY "
             ChapterTips$ = CHR$(0) + "BASE:THIS IS MADNESS!"
             ChapterTips$ = ChapterTips$ + CHR$(0) + "BASE:THESE PILOTS AREN'T AFRAID OF DYING"
             ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:I MUST NOT USE ALL MY SHIP'S ENERGY"
@@ -1884,26 +1978,26 @@ SUB SetLevel (Which)
             ChapterGoal = 100
             MaxEnemies = 10
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
+                IF Enemies(id).Hits > 0 THEN MakeEnemyEscape id ELSE CreateEnemy id, Chapter
             NEXT
         CASE 4
             StarFieldSpeed = .08
             EnemiesSpeed = .1
-            FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits > 0 THEN Enemies(id).Hits = 1: CreateEnemy id, Chapter
-            NEXT
             Chapter = Which
-            ChapterName$ = " CHAPTER 4 NAME PLACEHOLDER "
-            ChapterTips$ = CHR$(0) + "BASE:THIS IS MADNESS!"
-            ChapterTips$ = ChapterTips$ + CHR$(0) + "BASE:THESE PILOTS AREN'T AFRAID OF DYING"
-            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:I MUST NOT USE ALL MY SHIP'S ENERGY"
+            ChapterName$ = " SPACE AMOEBA "
+            ChapterTips$ = CHR$(0) + "BASE:THESE ARE NOT METAL SHIPS, CAPTAIN!"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "BASE:THESE CREATURES ARE RADIOACTIVE!"
+            ChapterTips$ = ChapterTips$ + CHR$(0) + "CAPTAIN:I GOTTA DO WHAT I GOTTA DO.|LET THEM EAT LASER!"
             ChapterTips.Position = 1
             ShowChapterName# = GetTICKS
-            ChapterGoal = 50
-            MaxEnemies = 10
+            ChapterGoal = 2
             FOR id = 1 TO MaxEnemies
-                IF Enemies(id).Hits = 0 THEN CreateEnemy id, Chapter
+                IF Enemies(id).Hits > 0 THEN MakeEnemyEscape id
             NEXT
+            MaxEnemies = 1
+            CreateEnemy MaxEnemies, Chapter
+            BossFight = -1
+            PlaySong SONG(2)
         CASE ELSE
             Chapter = 1
             SetLevel Chapter
@@ -1925,7 +2019,7 @@ END FUNCTION
 
 SUB KillEnemy (id, Strength)
     Enemies(id).Hits = Enemies(id).Hits - Strength
-    Enemies(id).X = Enemies(id).X + 3
+    Enemies(id).X = Enemies(id).X + 5
     IF Enemies(id).Hits <= 0 THEN
         KilledEnemies = KilledEnemies + 1
         WeKilledFirst = -1
@@ -1962,3 +2056,5 @@ FUNCTION RestoreImage& (PixelColor~&)
     _FREEIMAGE a&
     _DEST PrevDEST&
 END FUNCTION
+
+
