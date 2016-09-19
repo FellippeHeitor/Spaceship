@@ -187,7 +187,7 @@ IF UseKeyboard = 0 THEN
         END IF
     NEXT i
 
-    IF godMode THEN ChosenController = 2: GOTO AssignKeys
+    'IF godMode THEN ChosenController = 2: GOTO AssignKeys
     IF TotalControllers > 1 THEN
         'More than one controller found, user can choose which will be used
         '(though I highly suspect this bit will never be run)
