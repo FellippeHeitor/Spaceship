@@ -1,14 +1,20 @@
 'Spaceship - zen mode
 '
 'No enemies, no damage, no score: the ship drifts through a deep starfield while
-'scenery from data/zen.txt floats by in a loop. Up and down move the ship inside a
-'middle band; pushing past it scrolls the whole view, so you can climb or dive as far
-'as you like. Right speeds up, left slows down. Stars sit on three depth layers and
-'scenery has its own depth, so everything slides at its own pace (parallax).
+'scenery floats by. The map is many screens tall and split into areas (data/zen.txt),
+'each with its own looping scenery. Up and down scroll the view while the ship stays
+'centered; only at the top or bottom of the map does the ship move off the center. Right speeds up,
+'left slows down. Stars sit on three depth layers and scenery has its own depth, so
+'everything slides at its own pace (parallax).
+'
+'Scenery positions: an object's Y is where it appears on screen when the view is at
+'CamY = 0. With the view at CamY it shows at Y - CamY * depth, so far things barely
+'move as you climb and near things slide past quickly.
 
 SUB LoadZenScenes (f AS STRING)
-    DIM fh AS LONG, l AS STRING
+    DIM fh AS LONG, l AS STRING, a AS INTEGER
     ZenSceneCount = 0
+    ZenAreaCount = 0
     IF _FILEEXISTS(f) = 0 THEN LogMsg "Missing zen scenery: " + f: EXIT SUB
     fh = FREEFILE
     OPEN f FOR INPUT AS #fh
@@ -16,24 +22,47 @@ SUB LoadZenScenes (f AS STRING)
         LINE INPUT #fh, l
         l = _TRIM$(l)
         IF LEN(l) = 0 OR LEFT$(l, 1) = ";" THEN _CONTINUE
-        IF UCASE$(Word$(l, 1)) = "SCENE" AND ZenSceneCount < MAX_ZEN_SCENES THEN
-            IF SpriteID%(Word$(l, 3)) = 0 THEN
-                LogMsg "Unknown zen sprite: " + Word$(l, 3)
-            ELSE
-                ZenSceneCount = ZenSceneCount + 1
-                ZenScenes(ZenSceneCount).Gap = VAL(Word$(l, 2))
-                ZenScenes(ZenSceneCount).Sprite = SpriteID%(Word$(l, 3))
-                ZenScenes(ZenSceneCount).Depth = VAL(Word$(l, 4))
-                ZenScenes(ZenSceneCount).Clr = VAL(Word$(l, 5))
-                ZenScenes(ZenSceneCount).Row = VAL(Word$(l, 6))
-            END IF
-        END IF
+        SELECT CASE UCASE$(Word$(l, 1))
+            CASE "AREA"
+                IF ZenAreaCount < MAX_ZEN_AREAS THEN
+                    ZenAreaCount = ZenAreaCount + 1
+                    a = ZenAreaCount
+                    ZenAreas(a).CamFrom = VAL(Word$(l, 2))
+                    ZenAreas(a).CamTo = VAL(Word$(l, 3))
+                    ZenAreas(a).Nm = UCASE$(Rest$(l, 4))
+                    ZenAreas(a).FirstScene = ZenSceneCount + 1
+                    ZenAreas(a).LastScene = ZenSceneCount
+                END IF
+            CASE "SCENE"
+                IF ZenAreaCount = 0 THEN
+                    'Scenes before any AREA line get a one-screen area of their own
+                    ZenAreaCount = 1
+                    ZenAreas(1).CamFrom = -12
+                    ZenAreas(1).CamTo = 12
+                    ZenAreas(1).Nm = ""
+                    ZenAreas(1).FirstScene = 1
+                    ZenAreas(1).LastScene = 0
+                END IF
+                IF ZenSceneCount < MAX_ZEN_SCENES THEN
+                    IF SpriteID%(Word$(l, 3)) = 0 THEN
+                        LogMsg "Unknown zen sprite: " + Word$(l, 3)
+                    ELSE
+                        ZenSceneCount = ZenSceneCount + 1
+                        ZenScenes(ZenSceneCount).Gap = VAL(Word$(l, 2))
+                        ZenScenes(ZenSceneCount).Sprite = SpriteID%(Word$(l, 3))
+                        ZenScenes(ZenSceneCount).Depth = VAL(Word$(l, 4))
+                        ZenScenes(ZenSceneCount).Clr = VAL(Word$(l, 5))
+                        ZenScenes(ZenSceneCount).Row = VAL(Word$(l, 6))
+                        ZenAreas(ZenAreaCount).LastScene = ZenSceneCount
+                    END IF
+                END IF
+        END SELECT
     LOOP
     CLOSE #fh
 END SUB
 
 SUB StartZen
-    DIM i AS INTEGER
+    DIM i AS INTEGER, k AS INTEGER
     ClearEnemies
     ClearBullets
     ClearFX
@@ -46,11 +75,27 @@ SUB StartZen
     FOR i = 1 TO MAX_ZEN_STARS
         NewZenStar i, 0
     NEXT
+    'The map spans all the areas; the view starts at 0
+    Zen.MapTop = 0
+    Zen.MapBot = 0
+    FOR i = 1 TO ZenAreaCount
+        IF ZenAreas(i).CamFrom < Zen.MapTop THEN Zen.MapTop = ZenAreas(i).CamFrom
+        IF ZenAreas(i).CamTo > Zen.MapBot THEN Zen.MapBot = ZenAreas(i).CamTo
+        ZenAreas(i).Scene = ZenAreas(i).FirstScene - 1
+        ZenAreas(i).NextAt = RND * 4
+    NEXT
     Zen.CamY = 0
     Zen.Speed = 1
     Zen.Dist = 0
-    Zen.NextAt = 0
-    Zen.Scene = 0
+    Zen.DCam = 0
+    Zen.DShip = 0
+    'Let the world run for a minute so every area already has scenery in flight
+    FOR k = 1 TO 600
+        UpdateZenWorld .1
+    NEXT
+    Zen.Area = ZenAreaAt%(Zen.CamY)
+    Zen.AreaT = -100
+    Zen.VMoveT = -100
     Zen.LastReal = RealNow#
     'The ship glides in from the left edge
     Ply.X = 1
@@ -102,7 +147,7 @@ SUB NewZenStar (i AS INTEGER, atEdge AS _BYTE)
 END SUB
 
 SUB ZenFrame
-    DIM now AS DOUBLE, dt AS SINGLE, age AS DOUBLE
+    DIM now AS DOUBLE, dt AS SINGLE, age AS DOUBLE, a AS INTEGER
     IF MenuBack% OR InPressed(A_START) THEN
         Ply.ExitPhase = 0
         GoTitle
@@ -118,8 +163,23 @@ SUB ZenFrame
 
     UpdateZenShip dt, age
     UpdateZenWorld dt
+    'Flying into a new area shows its name
+    a = ZenAreaAt%(Zen.CamY)
+    IF a <> Zen.Area THEN
+        Zen.Area = a
+        IF a > 0 THEN Zen.AreaT = Game.T
+    END IF
     RenderZen age
 END SUB
+
+'Which area the view is in (0 if none)
+FUNCTION ZenAreaAt% (cam AS SINGLE)
+    DIM i AS INTEGER
+    ZenAreaAt% = 0
+    FOR i = 1 TO ZenAreaCount
+        IF cam >= ZenAreas(i).CamFrom AND cam <= ZenAreas(i).CamTo THEN ZenAreaAt% = i: EXIT FUNCTION
+    NEXT
+END FUNCTION
 
 SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
     DIM sp AS SINGLE, target AS SINGLE, prevY AS SINGLE, camBefore AS SINGLE
@@ -130,15 +190,33 @@ SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
         Ply.X = Ply.X + (14 - Ply.X) * (dt * 3)
     ELSE
         sp = 24 * dt
-        'Up and down: move inside the band, then scroll the view
+        'The ship stays centered and the view scrolls. Only at the top or bottom of
+        'the map, where the view can't scroll further, does the ship leave the center;
+        'heading back, it returns to the center before the view moves again.
         IF InHeld(A_UP) THEN
-            IF Ply.Y > ZEN_BAND_TOP THEN Ply.Y = Ply.Y - sp ELSE Zen.CamY = Zen.CamY - sp * .3
+            IF Ply.Y > ZEN_CENTER THEN
+                Ply.Y = Ply.Y - sp
+                IF Ply.Y < ZEN_CENTER THEN Ply.Y = ZEN_CENTER
+            ELSEIF Zen.CamY > Zen.MapTop THEN
+                Zen.CamY = Zen.CamY - sp / 2
+                IF Zen.CamY < Zen.MapTop THEN Zen.CamY = Zen.MapTop
+            ELSE
+                Ply.Y = Ply.Y - sp
+            END IF
         END IF
         IF InHeld(A_DOWN) THEN
-            IF Ply.Y < ZEN_BAND_BOT THEN Ply.Y = Ply.Y + sp ELSE Zen.CamY = Zen.CamY + sp * .3
+            IF Ply.Y < ZEN_CENTER THEN
+                Ply.Y = Ply.Y + sp
+                IF Ply.Y > ZEN_CENTER THEN Ply.Y = ZEN_CENTER
+            ELSEIF Zen.CamY < Zen.MapBot THEN
+                Zen.CamY = Zen.CamY + sp / 2
+                IF Zen.CamY > Zen.MapBot THEN Zen.CamY = Zen.MapBot
+            ELSE
+                Ply.Y = Ply.Y + sp
+            END IF
         END IF
-        IF Ply.Y < ZEN_BAND_TOP THEN Ply.Y = ZEN_BAND_TOP
-        IF Ply.Y > ZEN_BAND_BOT THEN Ply.Y = ZEN_BAND_BOT
+        IF Ply.Y < UpperLimit% THEN Ply.Y = UpperLimit%
+        IF Ply.Y > LowerLimit% THEN Ply.Y = LowerLimit%
         'Left and right: drift on screen and change cruising speed
         IF InHeld(A_RIGHT) AND Ply.X < 50 THEN Ply.X = Ply.X + sp / 2
         IF InHeld(A_LEFT) AND Ply.X > 8 THEN Ply.X = Ply.X - sp / 2
@@ -151,13 +229,14 @@ SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
     IF Ply.ExitV < 0 THEN Ply.ExitV = 0
     IF INT(Ply.X) > Ply.PrevX THEN Ply.SmokeT = Game.T
     Ply.PrevX = INT(Ply.X)
-    'How far the view and the ship moved this frame, in rows (for the parallax)
+    'How far the view and the ship moved this frame, in rows (for the star parallax)
     Zen.DCam = Zen.CamY - camBefore
     Zen.DShip = (Ply.Y - prevY) / 2
+    IF Zen.DCam <> 0 THEN Zen.VMoveT = Game.T
 END SUB
 
 SUB UpdateZenWorld (dt AS SINGLE)
-    DIM i AS INTEGER, k AS INTEGER, sc AS INTEGER, vy AS SINGLE, w AS INTEGER
+    DIM i AS INTEGER, k AS INTEGER, a AS INTEGER, sc AS INTEGER, vy AS SINGLE, cam AS SINGLE
     'Stars: nearer layers scroll faster and slide more when the view moves
     FOR i = 1 TO MAX_ZEN_STARS
         k = ZenStars(i).Layer
@@ -175,35 +254,46 @@ SUB UpdateZenWorld (dt AS SINGLE)
             END SELECT
         END IF
     NEXT
-    'Scenery drifts by at its own depth
+    Zen.DCam = 0
+    Zen.DShip = 0
+    'Scenery drifts left at its own depth; its place on the map stays put
     FOR i = 1 TO MAX_ZEN_OBJS
         IF ZenObjs(i).Active THEN
             ZenObjs(i).X = ZenObjs(i).X - Zen.Speed * ZenObjs(i).Depth * 22 * dt
-            ZenObjs(i).Y = ZenObjs(i).Y - Zen.DCam * ZenObjs(i).Depth - Zen.DShip * .1 * ZenObjs(i).Depth
-            w = Sprites(ZenObjs(i).Sprite).W
-            IF ZenObjs(i).X + w < 0 THEN ZenObjs(i).Active = 0
+            IF ZenObjs(i).X + Sprites(ZenObjs(i).Sprite).W < 0 THEN ZenObjs(i).Active = 0
         END IF
     NEXT
-    'Next piece of scenery in the loop
-    IF ZenSceneCount = 0 THEN EXIT SUB
+    'Every area runs its own scenery loop, on screen or not
     Zen.Dist = Zen.Dist + Zen.Speed * dt
-    IF Zen.Dist >= Zen.NextAt THEN
-        Zen.Scene = Zen.Scene + 1
-        IF Zen.Scene > ZenSceneCount THEN Zen.Scene = 1
-        sc = Zen.Scene
-        FOR i = 1 TO MAX_ZEN_OBJS
-            IF ZenObjs(i).Active = 0 THEN
-                ZenObjs(i).Active = -1
-                ZenObjs(i).Sprite = ZenScenes(sc).Sprite
-                ZenObjs(i).X = 81
-                ZenObjs(i).Y = ZenScenes(sc).Row
-                ZenObjs(i).Depth = ZenScenes(sc).Depth
-                ZenObjs(i).Clr = ZenScenes(sc).Clr
-                EXIT FOR
+    FOR a = 1 TO ZenAreaCount
+        IF ZenAreas(a).LastScene >= ZenAreas(a).FirstScene THEN
+            IF Zen.Dist >= ZenAreas(a).NextAt THEN
+                ZenAreas(a).Scene = ZenAreas(a).Scene + 1
+                IF ZenAreas(a).Scene > ZenAreas(a).LastScene THEN ZenAreas(a).Scene = ZenAreas(a).FirstScene
+                sc = ZenAreas(a).Scene
+                'Somewhere in the area: the scene's row is where it shows with the view there
+                cam = ZenAreas(a).CamFrom + RND * (ZenAreas(a).CamTo - ZenAreas(a).CamFrom)
+                SpawnZenObj sc, ZenScenes(sc).Row + cam * ZenScenes(sc).Depth
+                IF sc < ZenAreas(a).LastScene THEN sc = sc + 1 ELSE sc = ZenAreas(a).FirstScene
+                ZenAreas(a).NextAt = Zen.Dist + ZenScenes(sc).Gap
             END IF
-        NEXT
-        IF sc < ZenSceneCount THEN Zen.NextAt = Zen.Dist + ZenScenes(sc + 1).Gap ELSE Zen.NextAt = Zen.Dist + ZenScenes(1).Gap
-    END IF
+        END IF
+    NEXT
+END SUB
+
+SUB SpawnZenObj (sc AS INTEGER, mapY AS SINGLE)
+    DIM i AS INTEGER
+    FOR i = 1 TO MAX_ZEN_OBJS
+        IF ZenObjs(i).Active = 0 THEN
+            ZenObjs(i).Active = -1
+            ZenObjs(i).Sprite = ZenScenes(sc).Sprite
+            ZenObjs(i).X = 81
+            ZenObjs(i).Y = mapY
+            ZenObjs(i).Depth = ZenScenes(sc).Depth
+            ZenObjs(i).Clr = ZenScenes(sc).Clr
+            EXIT SUB
+        END IF
+    NEXT
 END SUB
 
 FUNCTION ZenLayerSpeed! (k AS INTEGER)
@@ -223,7 +313,7 @@ FUNCTION ZenLayerDepth! (k AS INTEGER)
 END FUNCTION
 
 SUB RenderZen (age AS DOUBLE)
-    DIM i AS INTEGER, c AS INTEGER
+    DIM t AS SINGLE
     CLS , 0
     COLOR , 0
     _PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
@@ -235,21 +325,57 @@ SUB RenderZen (age AS DOUBLE)
     DrawZenStars 3
     DrawPlayer
 
-    'Title and a hint that fade out
+    'Title, then the name of each new area as you fly into it
     IF age < 6 THEN
-        SELECT CASE age
-            CASE IS < 1, IS > 5: c = 8
-            CASE IS < 1.6, IS > 4.2: c = 7
-            CASE ELSE: c = 15
-        END SELECT
-        COLOR c
+        COLOR FadeColor%(age, 6)
         CenterText 11, "Z  E  N"
+    ELSE
+        t = Game.T - Zen.AreaT
+        IF t < 5 AND Zen.Area > 0 THEN
+            COLOR FadeColor%(t, 5)
+            CenterText 11, SpacedOut$(RTRIM$(ZenAreas(Zen.Area).Nm))
+        END IF
     END IF
     IF age < 9 THEN
         COLOR 8
         CenterText 25, "ARROWS: DRIFT, CLIMB AND DIVE    ESC: MENU"
     END IF
+    'Altitude gauge on the right edge while climbing or diving
+    IF Game.T - Zen.VMoveT < 2.5 THEN DrawZenGauge
     IF Game.Mute THEN COLOR 0, 7: PutText 75, 1, " MUTE ": COLOR , 0
+END SUB
+
+'Dim, bright, then dim again over a message's lifetime
+FUNCTION FadeColor% (t AS SINGLE, life AS SINGLE)
+    IF t < .6 OR t > life - .6 THEN
+        FadeColor% = 8
+    ELSEIF t < 1.2 OR t > life - 1.4 THEN
+        FadeColor% = 7
+    ELSE
+        FadeColor% = 15
+    END IF
+END FUNCTION
+
+FUNCTION SpacedOut$ (s AS STRING)
+    DIM i AS INTEGER, r AS STRING
+    FOR i = 1 TO LEN(s)
+        r = r + MID$(s, i, 1)
+        IF i < LEN(s) THEN r = r + " "
+    NEXT
+    SpacedOut$ = r
+END FUNCTION
+
+SUB DrawZenGauge
+    DIM r AS INTEGER, mark AS INTEGER, span AS SINGLE
+    span = Zen.MapBot - Zen.MapTop
+    IF span <= 0 THEN EXIT SUB
+    COLOR 8
+    FOR r = 4 TO 22
+        _PRINTSTRING (80, r), CHR$(179)
+    NEXT
+    mark = 4 + INT((Zen.CamY - Zen.MapTop) / span * 18 + .5)
+    COLOR 15
+    _PRINTSTRING (80, mark), CHR$(254)
 END SUB
 
 SUB DrawZenStars (layer AS INTEGER)
@@ -266,13 +392,19 @@ SUB DrawZenStars (layer AS INTEGER)
     NEXT
 END SUB
 
-'Draws the scenery whose depth is in [d0, d1), farthest first
+'Draws the on-screen scenery whose depth is in [d0, d1), farthest first
 SUB DrawZenObjs (d0 AS SINGLE, d1 AS SINGLE)
-    DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, t AS INTEGER, order(1 TO MAX_ZEN_OBJS) AS INTEGER
+    DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, t AS INTEGER, sy AS INTEGER
+    DIM order(1 TO MAX_ZEN_OBJS) AS INTEGER
     FOR i = 1 TO MAX_ZEN_OBJS
         IF ZenObjs(i).Active AND ZenObjs(i).Depth >= d0 AND ZenObjs(i).Depth < d1 THEN
-            n = n + 1
-            order(n) = i
+            IF ZenObjs(i).X < 81 THEN
+                sy = INT(ZenObjs(i).Y - Zen.CamY * ZenObjs(i).Depth)
+                IF sy <= 25 AND sy + Sprites(ZenObjs(i).Sprite).H > PLAY_TOP THEN
+                    n = n + 1
+                    order(n) = i
+                END IF
+            END IF
         END IF
     NEXT
     FOR i = 2 TO n
@@ -284,6 +416,7 @@ SUB DrawZenObjs (d0 AS SINGLE, d1 AS SINGLE)
         LOOP
     NEXT
     FOR i = 1 TO n
-        DrawSprite ZenObjs(order(i)).Sprite, 1, INT(ZenObjs(order(i)).X), INT(ZenObjs(order(i)).Y), ZenObjs(order(i)).Clr, 0
+        sy = INT(ZenObjs(order(i)).Y - Zen.CamY * ZenObjs(order(i)).Depth)
+        DrawSprite ZenObjs(order(i)).Sprite, 1, INT(ZenObjs(order(i)).X), sy, ZenObjs(order(i)).Clr, 0
     NEXT
 END SUB

@@ -173,10 +173,10 @@ CONST DEMO_LENGTH = 20 'seconds the demo plays before the title comes back
 
 'Zen mode
 CONST MAX_ZEN_STARS = 70
-CONST MAX_ZEN_OBJS = 12
-CONST MAX_ZEN_SCENES = 40
-CONST ZEN_BAND_TOP = 14 'the ship moves freely between these half-rows; past them the view scrolls
-CONST ZEN_BAND_BOT = 36
+CONST MAX_ZEN_OBJS = 48
+CONST MAX_ZEN_SCENES = 80
+CONST MAX_ZEN_AREAS = 10
+CONST ZEN_CENTER = 25 'the ship's half-row while the view scrolls (screen center)
 CONST SHIP_COLOR = 14
 
 'Effects
@@ -360,7 +360,7 @@ TYPE ZenObjType
     Active AS _BYTE
     Sprite AS INTEGER
     X AS SINGLE
-    Y AS SINGLE
+    Y AS SINGLE 'screen row when the view is at CamY = 0 (see zen.bm)
     Depth AS SINGLE '0 = infinitely far, 1 = as close as the near stars
     Clr AS INTEGER
 END TYPE
@@ -373,12 +373,25 @@ TYPE ZenSceneType
     Row AS SINGLE
 END TYPE
 
+TYPE ZenAreaType
+    Nm AS STRING * 32
+    CamFrom AS SINGLE 'view positions (rows) this area covers; negative is up
+    CamTo AS SINGLE
+    FirstScene AS INTEGER
+    LastScene AS INTEGER
+    Scene AS INTEGER
+    NextAt AS SINGLE
+END TYPE
+
 TYPE ZenStateType
     CamY AS SINGLE 'vertical view offset in rows
     Speed AS SINGLE 'cruising speed multiplier (1 = normal)
     Dist AS SINGLE
-    NextAt AS SINGLE
-    Scene AS INTEGER
+    MapTop AS SINGLE 'how far the view can scroll up and down
+    MapBot AS SINGLE
+    Area AS INTEGER
+    AreaT AS DOUBLE 'when the current area's name started showing
+    VMoveT AS DOUBLE 'last time the view scrolled
     LastReal AS DOUBLE
     DCam AS SINGLE 'view and ship movement this frame, in rows
     DShip AS SINGLE
@@ -622,6 +635,8 @@ DIM SHARED ZenStars(1 TO MAX_ZEN_STARS) AS ZenStarType
 DIM SHARED ZenObjs(1 TO MAX_ZEN_OBJS) AS ZenObjType
 DIM SHARED ZenScenes(1 TO MAX_ZEN_SCENES) AS ZenSceneType
 DIM SHARED ZenSceneCount AS INTEGER
+DIM SHARED ZenAreas(1 TO MAX_ZEN_AREAS) AS ZenAreaType
+DIM SHARED ZenAreaCount AS INTEGER
 DIM SHARED Zen AS ZenStateType
 DIM SHARED Ev(1 TO MAX_EVENTS) AS EventType
 
