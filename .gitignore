@@ -1,0 +1,14 @@
+# Build output
+Spaceship
+Spaceship.exe
+*_start.command
+
+# Per-player files written by the game
+spaceship.cfg
+scores.dat
+spaceship.log
+autotest.log
+controller.dat
+
+# macOS
+.DS_Store

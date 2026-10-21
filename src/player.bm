@@ -1,0 +1,598 @@
+'Spaceship - the player's ship
+
+FUNCTION ShipRow!
+    ShipRow! = INT(Ply.Y) / 2
+END FUNCTION
+
+FUNCTION ShipR%
+    ShipR% = _CEIL(INT(Ply.Y) / 2)
+END FUNCTION
+
+FUNCTION UpperLimit%
+    IF Ply.Size = 1 THEN UpperLimit% = 4 ELSE UpperLimit% = 6
+END FUNCTION
+
+FUNCTION LowerLimit%
+    IF Ply.Size = 1 THEN LowerLimit% = 49 ELSE LowerLimit% = 47
+END FUNCTION
+
+FUNCTION LeftLimit%
+    IF Ply.Size = 1 THEN LeftLimit% = 2 ELSE LeftLimit% = 5
+END FUNCTION
+
+SUB SetShipSize (s AS INTEGER)
+    Ply.Size = s
+    IF Ply.Y < UpperLimit% THEN Ply.Y = UpperLimit%
+    IF Ply.Y > LowerLimit% THEN Ply.Y = LowerLimit%
+    IF Ply.X < LeftLimit% THEN Ply.X = LeftLimit%
+END SUB
+
+SUB AddShipCell (x AS INTEGER, y AS INTEGER, c AS INTEGER)
+    ShipN = ShipN + 1
+    ShipCX(ShipN) = x
+    ShipCY(ShipN) = y
+    ShipCC(ShipN) = c
+END SUB
+
+'Builds the list of cells the ship occupies (same glyphs as the original game)
+SUB ComputeShipLayout
+    DIM xi AS INTEGER, yi AS INTEGER, r AS INTEGER, odd AS _BYTE
+    xi = INT(Ply.X)
+    yi = INT(Ply.Y)
+    r = _CEIL(yi / 2)
+    odd = (r <> yi / 2)
+    ShipN = 0
+    IF Ply.Size = 1 THEN
+        IF odd THEN
+            AddShipCell xi - 1, r - 1, 220
+            AddShipCell xi - 1, r, 220
+            AddShipCell xi, r, 223
+        ELSE
+            AddShipCell xi - 1, r, 223
+            AddShipCell xi, r, 220
+            AddShipCell xi - 1, r + 1, 223
+        END IF
+    ELSE
+        IF odd THEN
+            AddShipCell xi - 4, r - 2, 220
+            AddShipCell xi - 3, r - 1, 223
+            AddShipCell xi - 2, r - 1, 220
+            AddShipCell xi - 1, r - 1, 220
+            AddShipCell xi - 2, r, 219
+            AddShipCell xi - 1, r, 219
+            AddShipCell xi, r, 223
+            AddShipCell xi - 4, r + 1, 220
+            AddShipCell xi - 3, r + 1, 223
+        ELSE
+            AddShipCell xi - 4, r - 1, 223
+            AddShipCell xi - 3, r - 1, 220
+            AddShipCell xi - 2, r, 219
+            AddShipCell xi - 1, r, 219
+            AddShipCell xi, r, 220
+            AddShipCell xi - 3, r + 1, 220
+            AddShipCell xi - 2, r + 1, 223
+            AddShipCell xi - 1, r + 1, 223
+            AddShipCell xi - 4, r + 2, 223
+        END IF
+    END IF
+END SUB
+
+FUNCTION NoseChar$
+    IF ShipR% <> INT(Ply.Y) / 2 THEN NoseChar$ = CHR$(223) ELSE NoseChar$ = CHR$(220)
+END FUNCTION
+
+SUB ResetPlayerForNewGame
+    DIM i AS INTEGER
+    Ply.Lives = 3
+    IF Game.Difficulty = DIFF_EASY THEN Ply.Lives = 5
+    Ply.Score = 0
+    Ply.NextLife = 50000
+    Ply.Weapon = 1
+    Ply.Continues = 0
+    FOR i = 1 TO SP_COUNT
+        SpecialCount(i) = 0
+    NEXT
+    Ply.CurSpecial = SP_FREEZE
+    Ply.Combo = 0
+    PlacePlayerForStart
+END SUB
+
+SUB PlacePlayerForStart
+    Ply.X = 5
+    Ply.Y = 25
+    Ply.Size = 2
+    Ply.Alive = -1
+    Ply.Dying = 0
+    Ply.Shield = 0
+    Ply.Freeze = 0
+    Ply.OverdriveEnd = 0
+    Ply.Energy = 0
+    Ply.Recharge = -1
+    Ply.SlideIn = -1
+    Ply.RechargeT = Game.T
+    Ply.LastDamage = -100
+    Ply.LastGrow = -100
+    Ply.SmokeT = -100
+    Ply.MuzzleT = -100
+    Ply.ShieldT = -100
+    Ply.PrevX = 5
+    Ply.PrevY = 25
+    Game.StarInterval = Game.StarBase
+    ResetStars
+    PlaySfx SndFullRecharge
+END SUB
+
+SUB AddScore (pts AS LONG, x AS SINGLE, y AS SINGLE)
+    IF pts <= 0 THEN EXIT SUB
+    Ply.Score = Ply.Score + pts
+    AddFloatText x, y, NumStr$(pts), 15
+    DO WHILE Ply.Score >= Ply.NextLife
+        Ply.NextLife = Ply.NextLife + 50000
+        Ply.Lives = Ply.Lives + 1
+        PlaySfx SndExtraLife
+        AddFloatText Ply.X - 2, ShipRow! - 3, "1UP", 10
+    LOOP
+END SUB
+
+FUNCTION ComboMult%
+    DIM m AS INTEGER
+    m = 1 + Ply.Combo \ 3
+    IF m > 8 THEN m = 8
+    ComboMult% = m
+END FUNCTION
+
+SUB RegisterKillCombo
+    IF Game.T - Ply.ComboT < 1.5 THEN Ply.Combo = Ply.Combo + 1 ELSE Ply.Combo = 1
+    Ply.ComboT = Game.T
+END SUB
+
+SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
+    DIM moved AS _BYTE, sp AS SINGLE, i AS INTEGER, prevYi AS INTEGER
+
+    Ply.FiredThisTick = 0
+    Ply.MoveDY = 0
+
+    IF Ply.Dying THEN
+        IF Game.T - Ply.DeathT > 1.6 THEN LoseLife
+        EXIT SUB
+    END IF
+
+    IF Ply.Recharge THEN
+        IF Game.T - Ply.RechargeT > .03 THEN
+            Ply.RechargeT = Game.T
+            Ply.Energy = Ply.Energy + 5
+            IF Ply.SlideIn THEN Ply.X = Ply.X + 1
+        END IF
+        IF Ply.Energy >= 100 THEN
+            Ply.Energy = 100
+            Ply.Recharge = 0
+            Ply.SlideIn = 0
+            IF NOT Lvl.Started THEN Lvl.Started = -1
+        END IF
+        Ply.MovingRight = 0
+        EXIT SUB
+    END IF
+
+    IF Game.T - Ply.ComboT > 1.5 THEN Ply.Combo = 0
+
+    'Movement (costs a tiny bit of energy, like the original)
+    prevYi = INT(Ply.Y)
+    sp = 30 * dt
+    Ply.MovingRight = 0
+    IF Ply.Energy > 0 THEN
+        IF InHeld(A_UP) AND Ply.Y > UpperLimit% THEN Ply.Y = Ply.Y - sp: moved = -1
+        IF InHeld(A_DOWN) AND Ply.Y < LowerLimit% THEN Ply.Y = Ply.Y + sp: moved = -1
+        IF InHeld(A_LEFT) AND Ply.X > LeftLimit% THEN Ply.X = Ply.X - sp: moved = -1
+        IF InHeld(A_RIGHT) THEN
+            Ply.MovingRight = -1
+            IF Ply.X < 80 THEN Ply.X = Ply.X + sp: moved = -1
+        END IF
+        IF moved THEN Ply.Energy = Ply.Energy - .03 * dt
+    END IF
+    IF Ply.Y < UpperLimit% THEN Ply.Y = UpperLimit%
+    IF Ply.Y > LowerLimit% THEN Ply.Y = LowerLimit%
+    IF Ply.X < LeftLimit% THEN Ply.X = LeftLimit%
+    IF Ply.X > 80 THEN Ply.X = 80
+    Ply.MoveDY = INT(Ply.Y) - prevYi
+    IF INT(Ply.X) > Ply.PrevX THEN Ply.SmokeT = Game.T
+    Ply.PrevX = INT(Ply.X)
+    Ply.PrevY = INT(Ply.Y)
+
+    'Passive engine drain
+    Ply.Energy = Ply.Energy - .0001 * dt
+
+    IF InHeld(A_FIRE) THEN TryFire
+    IF firstTick THEN
+        IF InPressed(A_SPECIAL) THEN UseSpecial
+        IF InPressed(A_SELECT) THEN CycleSpecial
+    END IF
+
+    'Timed power-ups
+    IF Ply.Shield THEN
+        IF Game.T - Ply.ShieldT > 30 THEN
+            Ply.Shield = 0
+            PlaySfx SndShieldOff
+            TopMessage " SHIELD RELEASED "
+        END IF
+    END IF
+    IF Ply.Freeze THEN
+        IF Game.T - Ply.FreezeT > 10 THEN
+            Ply.Freeze = 0
+            PlaySfx SndBlizzard
+        ELSEIF Game.T - Ply.FreezeT > .5 AND VisibleEnemyCount% = 0 THEN
+            Ply.Freeze = 0
+            PlaySfx SndBlizzard
+        END IF
+    END IF
+
+    IF Game.God AND Ply.Energy < 20 THEN Ply.Energy = 20
+
+    IF Ply.Energy <= 0 THEN
+        Ply.Energy = 0
+        KillPlayer "NO MORE ENERGY!"
+        PlaySfx SndOutOfEnergy
+    END IF
+END SUB
+
+SUB TopMessage (s AS STRING)
+    Game.TopMsg = s
+    Game.TopMsgUntil = Game.T + 1
+END SUB
+
+FUNCTION FreeBullet%
+    DIM i AS INTEGER
+    FreeBullet% = 0
+    FOR i = 1 TO MAX_BUL
+        IF Bul(i).Active = 0 THEN FreeBullet% = i: EXIT FUNCTION
+    NEXT
+END FUNCTION
+
+SUB FirePlayerShot (kind AS INTEGER, x AS SINGLE, y AS SINGLE, dx AS SINGLE, dy AS SINGLE, size AS INTEGER, dmg AS SINGLE, pierce AS _BYTE, life AS SINGLE)
+    DIM b AS INTEGER
+    b = FreeBullet%
+    IF b = 0 THEN EXIT SUB
+    Bul(b).Active = -1
+    Bul(b).Owner = 1
+    Bul(b).Kind = kind
+    Bul(b).X = x
+    Bul(b).Y = y
+    Bul(b).DX = dx
+    Bul(b).DY = dy
+    Bul(b).Size = size
+    Bul(b).Ch = NoseChar$
+    Bul(b).Clr = 15
+    Bul(b).Born = Game.T
+    Bul(b).Life = life
+    Bul(b).Damage = dmg
+    Bul(b).Pierce = pierce
+    Bul(b).LastHit = 0
+    Bul(b).Target = 0
+    Bul(b).Src = 0
+    Lvl.Shots = Lvl.Shots + 1
+END SUB
+
+SUB TryFire
+    DIM cooldown AS SINGLE, cost AS SINGLE, r AS INTEGER, xi AS INTEGER, dmg AS SINGLE
+    cooldown = .2
+    IF Game.T < Ply.OverdriveEnd THEN cooldown = .08
+    IF Game.T - Ply.LastShot < cooldown THEN EXIT SUB
+    IF FreeBullet% = 0 THEN EXIT SUB
+    Ply.LastShot = Game.T
+    Ply.FiredThisTick = -1
+
+    IF Game.T >= Ply.OverdriveEnd THEN
+        IF Ply.Size = 1 THEN cost = .5 ELSE cost = .8
+        IF Game.Difficulty = DIFF_EASY THEN cost = cost * .7
+        IF Game.Difficulty = DIFF_HARD THEN cost = cost * 1.2
+        Ply.Energy = Ply.Energy - cost
+    END IF
+    IF Ply.Size = 1 THEN PlaySfx SndLaser1 ELSE PlaySfx SndLaser2
+
+    r = ShipR%
+    xi = INT(Ply.X)
+    dmg = Ply.Size
+
+    'Upgrades add coverage more than raw damage, so bosses stay a fight
+    SELECT CASE Ply.Weapon
+        CASE 1
+            FirePlayerShot BK_LASER, xi, r, 30, 0, Ply.Size * 2, dmg, 0, .8
+        CASE 2
+            FirePlayerShot BK_LASER, xi, r - 1, 30, 0, Ply.Size * 2, dmg * .65, 0, .8
+            FirePlayerShot BK_LASER, xi, r + 1, 30, 0, Ply.Size * 2, dmg * .65, 0, .8
+        CASE 3
+            FirePlayerShot BK_LASER, xi, r - 1, 30, 0, Ply.Size * 2, dmg * .65, 0, .8
+            FirePlayerShot BK_LASER, xi, r + 1, 30, 0, Ply.Size * 2, dmg * .65, 0, .8
+            FirePlayerShot BK_DIAG, xi + 1, r - 1, 30, -15, 1, .5, 0, .5
+            FirePlayerShot BK_DIAG, xi + 1, r + 1, 30, 15, 1, .5, 0, .5
+        CASE ELSE
+            FirePlayerShot BK_LASER, xi, r, 34, 0, 6, dmg, -1, .8
+            FirePlayerShot BK_LASER, xi, r - 1, 30, 0, Ply.Size * 2, dmg * .5, 0, .8
+            FirePlayerShot BK_LASER, xi, r + 1, 30, 0, Ply.Size * 2, dmg * .5, 0, .8
+            FirePlayerShot BK_DIAG, xi + 1, r - 1, 30, -15, 1, .5, 0, .5
+            FirePlayerShot BK_DIAG, xi + 1, r + 1, 30, 15, 1, .5, 0, .5
+    END SELECT
+    IF Ply.Weapon < 3 THEN Ply.MuzzleT = Game.T
+END SUB
+
+SUB CycleSpecial
+    DIM i AS INTEGER, s AS INTEGER
+    s = Ply.CurSpecial
+    FOR i = 1 TO SP_COUNT
+        s = s MOD SP_COUNT + 1
+        IF SpecialCount(s) > 0 THEN EXIT FOR
+    NEXT
+    Ply.CurSpecial = s
+    PlaySfx SndMenuMove
+END SUB
+
+SUB UseSpecial
+    DIM s AS INTEGER
+    IF Game.T - Ply.LastSpecialT < .3 THEN EXIT SUB
+    s = Ply.CurSpecial
+    IF s < 1 OR s > SP_COUNT THEN EXIT SUB
+    IF SpecialCount(s) <= 0 THEN
+        CycleSpecial
+        s = Ply.CurSpecial
+        IF SpecialCount(s) <= 0 THEN EXIT SUB
+    END IF
+    Ply.LastSpecialT = Game.T
+    SELECT CASE s
+        CASE SP_FREEZE
+            IF Ply.Freeze THEN EXIT SUB
+            Ply.Freeze = -1
+            Ply.FreezeT = Game.T
+            PlaySfx SndShieldOn
+        CASE SP_BOMB
+            DoBomb
+        CASE SP_MISSILE
+            LaunchMissiles
+        CASE SP_OVERDRIVE
+            Ply.OverdriveEnd = Game.T + 8
+            PlaySfx SndWeaponUp
+            TopMessage " OVERDRIVE! "
+    END SELECT
+    SpecialCount(s) = SpecialCount(s) - 1
+    IF SpecialCount(s) = 0 THEN CycleSpecial
+END SUB
+
+SUB DoBomb
+    DIM i AS INTEGER, k AS INTEGER
+    PlaySfx SndBomb
+    SetFlash 255, 255, 255, .15
+    FOR i = 1 TO MAX_EN
+        IF En(i).Active AND En(i).Visible THEN
+            IF En(i).Boss > 0 THEN
+                HitEnemy i, 6, -1
+            ELSEIF NOT Defs(En(i).DefID).Invuln AND NOT Defs(En(i).DefID).Ghost THEN
+                KillEnemy i, -1
+            END IF
+        END IF
+    NEXT
+    FOR i = 1 TO MAX_BUL
+        IF Bul(i).Active AND Bul(i).Owner = 2 THEN
+            Bul(i).Active = 0
+            AddParticle Bul(i).X, Bul(i).Y, RndRange!(-5, 5), RndRange!(-3, 3), .3
+        END IF
+    NEXT
+    FOR k = 1 TO 6
+        AddExplosion RndRange!(10, 75), RndRange!(4, 22), 1
+    NEXT
+END SUB
+
+SUB LaunchMissiles
+    DIM k AS INTEGER, r AS INTEGER, b AS INTEGER
+    PlaySfx SndMissile
+    r = ShipR%
+    FOR k = 1 TO 6
+        b = FreeBullet%
+        IF b = 0 THEN EXIT FOR
+        Bul(b).Active = -1
+        Bul(b).Owner = 1
+        Bul(b).Kind = BK_MISSILE
+        Bul(b).X = Ply.X - 1
+        Bul(b).Y = r
+        Bul(b).DX = 8
+        IF k MOD 2 THEN Bul(b).DY = -(2 + k) ELSE Bul(b).DY = 2 + k
+        Bul(b).Size = 1
+        Bul(b).Ch = CHR$(16)
+        Bul(b).Clr = 14
+        Bul(b).Born = Game.T
+        Bul(b).Life = 3
+        Bul(b).Damage = 3
+        Bul(b).Pierce = 0
+        Bul(b).Target = 0
+        Bul(b).LastHit = 0
+    NEXT
+END SUB
+
+'Hurts the ship. kind: 0 contact/terrain, 1 enemy fire
+SUB HurtPlayer (kind AS INTEGER)
+    IF Ply.Dying OR Ply.Recharge OR Lvl.GoalDone THEN EXIT SUB
+    IF Game.T - Ply.LastDamage < GRACE_TIME THEN EXIT SUB
+    IF Ply.Shield THEN
+        IF kind = 1 THEN EXIT SUB
+        Ply.Shield = 0
+        Ply.LastDamage = Game.T - GRACE_TIME + .5
+        PlaySfx SndShieldOff
+        TopMessage " SHIELD DESTROYED "
+        EXIT SUB
+    END IF
+    IF Game.God THEN Ply.LastDamage = Game.T: EXIT SUB
+    Lvl.Damage = Lvl.Damage + 1
+    IF Ply.Size = 2 THEN
+        Ply.LastDamage = Game.T
+        PlaySfx SndShipDamage
+        SetFlash 28, 28, 28, .15
+        SetShipSize 1
+        Ply.Energy = Ply.Energy / 2
+        IF Ply.Weapon > 1 THEN Ply.Weapon = Ply.Weapon - 1
+        ShowMessage "UNIT DAMAGED!", 4, 1.5
+        AddExplosion Ply.X - 1, ShipRow!, 0
+    ELSE
+        KillPlayer "BUSTED!!"
+    END IF
+END SUB
+
+SUB KillPlayer (msg AS STRING)
+    DIM i AS INTEGER
+    IF Ply.Dying THEN EXIT SUB
+    Ply.Dying = -1
+    Ply.Alive = 0
+    Ply.DeathT = Game.T
+    Ply.DeathMsg = msg
+    Ply.Shield = 0
+    Ply.Freeze = 0
+    PlaySfx SndExplosion
+    AddExplosion Ply.X - 1, ShipRow!, 2
+    SetFlash 255, 255, 255, .12
+    FOR i = 1 TO MAX_PK
+        IF NOT Pk(i).Scripted THEN Pk(i).Active = 0
+    NEXT
+    StopMusic
+    Test.Deaths = Test.Deaths + 1
+    IF Test.Active THEN LogMsg "Player died: " + msg + " (lives left" + STR$(Ply.Lives) + ")"
+END SUB
+
+SUB LoseLife
+    DIM i AS INTEGER
+    Ply.Lives = Ply.Lives - 1
+    IF Ply.Lives < 0 THEN
+        GoGameOver
+        EXIT SUB
+    END IF
+    'Clear the area and bring the ship back in
+    FOR i = 1 TO MAX_BUL
+        IF Bul(i).Owner = 2 THEN Bul(i).Active = 0
+    NEXT
+    FOR i = 1 TO MAX_EN
+        IF En(i).Active AND En(i).Pool THEN
+            En(i).X = 81 + RND * 80
+        END IF
+    NEXT
+    PlacePlayerForStart
+    Ply.Weapon = MaxI%(1, Ply.Weapon - 1)
+    Lvl.ShowNameT = Game.T
+    PlaySong Lvl.Song
+    IF BossActive% THEN PlaySong SONG_BOSS
+END SUB
+
+SUB DrawPlayer
+    DIM i AS INTEGER, clr AS INTEGER, pc AS INTEGER, stp AS INTEGER, xi AS INTEGER, r AS INTEGER
+    DIM offS AS SINGLE, lastShield AS INTEGER, sx AS INTEGER, sy AS INTEGER
+    IF Ply.Dying THEN EXIT SUB
+
+    ComputeShipLayout
+    xi = INT(Ply.X)
+    r = ShipR%
+
+    'Smoke trail (hardware image under the text layer)
+    stp = 3 - INT((Game.T - Ply.SmokeT) * 30)
+    IF stp >= 1 AND stp <= 3 THEN
+        IF Ply.Size = 1 THEN offS = 3.5 ELSE offS = 5
+        _PUTIMAGE ((Ply.X - offS) * _FONTWIDTH - _FONTWIDTH, (ShipRow! + .3) * _FONTHEIGHT - _FONTHEIGHT), SmokeImages(stp), 0
+    END IF
+
+    'Muzzle flash (the original diagonal fire animation)
+    stp = INT((Game.T - Ply.MuzzleT) * 30) + 1
+    IF stp >= 1 AND stp <= 8 THEN
+        COLOR SHIP_COLOR - 8
+        IF xi + stp <= 80 THEN
+            IF r + stp <= 25 THEN _PRINTSTRING (xi + stp, r + stp), MID$(BoomChars, stp, 1)
+            IF r - stp >= 2 THEN _PRINTSTRING (xi + stp, r - stp), MID$(BoomChars, stp, 1)
+        END IF
+    END IF
+
+    IF Game.T - Ply.LastGrow < 1 THEN clr = INT(RND * 14) + 1 ELSE clr = SHIP_COLOR
+    IF Game.T - Ply.LastDamage < GRACE_TIME THEN
+        IF INT(Game.T * 30) MOD 2 = 0 THEN clr = 0
+    END IF
+    COLOR clr
+    FOR i = 1 TO ShipN
+        IF ShipCX(i) >= 1 AND ShipCX(i) <= 80 AND ShipCY(i) >= 1 AND ShipCY(i) <= 25 THEN
+            _PRINTSTRING (ShipCX(i), ShipCY(i)), CHR$(ShipCC(i))
+        END IF
+    NEXT
+    'A power-up on screen lights up the ship's nose in its color
+    pc = FirstPickupColor%
+    IF pc > -99 AND clr <> 0 THEN
+        COLOR pc
+        IF xi >= 1 AND xi <= 80 THEN _PRINTSTRING (xi, r), NoseChar$
+    END IF
+
+    'Shield
+    IF Ply.Shield THEN
+        SELECT CASE Game.T - Ply.ShieldT
+            CASE IS < 20: lastShield = 10
+            CASE IS < 25: lastShield = 5
+            CASE ELSE: lastShield = 3
+        END SELECT
+        IF RealNow# - ShieldIdxT > .05 THEN
+            ShieldIdxT = RealNow#
+            ShieldIdx = ShieldIdx + 1
+        END IF
+        IF ShieldIdx > lastShield OR ShieldIdx < 1 THEN ShieldIdx = 1
+        IF Ply.Size = 1 THEN offS = 3.5 ELSE offS = 5
+        sx = (Ply.X - offS) * _FONTWIDTH - _FONTWIDTH
+        sy = (ShipRow! - 1.3) * _FONTHEIGHT - _FONTHEIGHT
+        _PUTIMAGE (sx, sy), ShieldImages(ShieldIdx), 0
+    END IF
+
+    IF Game.T < Game.TopMsgUntil THEN Banner 1, RTRIM$(Game.TopMsg), 0, 7
+END SUB
+
+'Checks the ship's cells against the collision map
+SUB PlayerCollisions
+    DIM i AS INTEGER, code AS INTEGER, kind AS INTEGER, idx AS INTEGER, d AS INTEGER
+    IF Ply.Dying OR NOT Ply.Alive THEN EXIT SUB
+    ComputeShipLayout
+    FOR i = 1 TO ShipN
+        IF ShipCX(i) >= 1 AND ShipCX(i) <= 80 AND ShipCY(i) >= 1 AND ShipCY(i) <= 25 THEN
+            code = ScreenMap(ShipCX(i), ShipCY(i))
+            IF code > 0 THEN
+                kind = code \ 1000
+                idx = code MOD 1000
+                SELECT CASE kind
+                    CASE MAP_PICKUP
+                        CollectPickup idx
+                    CASE MAP_ENEMY
+                        IF En(idx).Active THEN
+                            d = En(idx).DefID
+                            IF En(idx).Move = MV_LIGHTNING THEN
+                                LightningStrike idx
+                            ELSEIF Defs(d).Touch THEN
+                                IF Game.T - Ply.LastDamage >= GRACE_TIME OR Ply.Shield THEN
+                                    'Ramming hurts both (the original rule)
+                                    IF NOT (Defs(d).Invuln OR En(idx).Invuln) THEN
+                                        IF En(idx).Boss = 0 THEN
+                                            KillEnemy idx, -1
+                                        ELSE
+                                            HitEnemy idx, Ply.Size, -1
+                                        END IF
+                                    END IF
+                                    HurtPlayer 0
+                                END IF
+                            END IF
+                        END IF
+                    CASE MAP_EBULLET
+                        IF Bul(idx).Active AND Ply.Shield = 0 AND Game.T - Ply.LastDamage >= GRACE_TIME THEN
+                            IF Bul(idx).Kind <> BK_ZAP THEN Bul(idx).Active = 0
+                            HurtPlayer 1
+                        END IF
+                    CASE MAP_TERRAIN
+                        HurtPlayer 0
+                END SELECT
+                IF Ply.Dying THEN EXIT SUB
+            END IF
+        END IF
+    NEXT
+END SUB
+
+SUB LightningStrike (idx AS INTEGER)
+    IF En(idx).Param <> 0 THEN EXIT SUB
+    En(idx).Param = 1
+    IF Ply.Shield OR Game.God THEN EXIT SUB
+    Ply.Energy = Ply.Energy - 20
+    SetFlash 60, 60, 120, .1
+    TopMessage " ION STRIKE! -20 "
+    PlaySfx SndShipDamage
+END SUB

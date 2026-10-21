@@ -1,0 +1,12 @@
+; Bonus stage between sectors: grab energy cells and stars, dodge the debris.
+; Collect 20 or more for an extra ship.
+NAME SUPPLY RUN
+BONUS
+MUSIC BONUS
+GOAL SURVIVE 40
+STARS .04
+PICKUPS OFF
+AT 1 TIP BASE:SUPPLY DROP INBOUND.|GRAB WHAT YOU CAN, CAPTAIN!
+EVERY .6 FROM 2 TO 38 PICKUP CELL
+EVERY 1.7 FROM 3 TO 38 PICKUP STAR
+EVERY 1.4 FROM 4 TO 37 SPAWN DEBRIS
