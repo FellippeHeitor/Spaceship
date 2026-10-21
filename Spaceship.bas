@@ -16,7 +16,14 @@ _TITLE "Spaceship"
 DEFLNG A-Z
 
 DIM SHARED SONG(1 TO 3) AS LONG
-Path$ = "Audio\"
+
+$IF WIN THEN
+sep$="\"
+$ELSE
+sep$="/"
+$ENDIF
+
+Path$ = "Audio" + sep$
 SONG(1) = _SNDOPEN(Path$ + "levelintro.ogg", "SYNC,PAUSE")
 PlaySong SONG(1)
 
@@ -753,11 +760,11 @@ DO
     END IF
 
     'Draw ship:
-    'Ü                              Ü
-    ' ßÜÜ    ßÜ               ßÜ    Üß
-    '  ÛÛß     ÛÛÜ            ß
-    'Üß       Üßß
-    '        ß
+    'ï¿½                              ï¿½
+    ' ï¿½ï¿½ï¿½    ï¿½ï¿½               ï¿½ï¿½    ï¿½ï¿½
+    '  ï¿½ï¿½ï¿½     ï¿½ï¿½ï¿½            ï¿½
+    'ï¿½ï¿½       ï¿½ï¿½ï¿½
+    '        ï¿½
     IF GetTICKS - LastShipGrow# < 1 THEN
         COLOR _CEIL(RND * 14) + 1
     ELSE
