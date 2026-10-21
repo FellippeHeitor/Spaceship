@@ -93,6 +93,8 @@ SUB StartZen
     Zen.Dist = 0
     Zen.DCam = 0
     Zen.DShip = 0
+    Zen.VY = 0
+    Zen.VIn = 0
     'Let the world run for a minute so every area already has scenery in flight
     FOR k = 1 TO 600
         UpdateZenWorld .1
@@ -164,6 +166,7 @@ SUB ZenFrame
     DIM now AS DOUBLE, dt AS SINGLE, age AS DOUBLE, a AS INTEGER
     IF MenuBack% OR InPressed(A_START) THEN
         Ply.ExitPhase = 0
+        Ply.Bank = 0
         GoTitle
         EXIT SUB
     END IF
@@ -202,7 +205,7 @@ FUNCTION ZenAreaAt% (cam AS SINGLE)
 END FUNCTION
 
 SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
-    DIM sp AS SINGLE, target AS SINGLE, prevY AS SINGLE, camBefore AS SINGLE
+    DIM sp AS SINGLE, target AS SINGLE, prevY AS SINGLE, camBefore AS SINGLE, dir AS INTEGER, fr AS SINGLE
     IF Zen.Found THEN
         'Overdrive: the same blast-off as a won chapter, stars streaking past
         UpdateExitSequence dt
@@ -219,33 +222,29 @@ SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
         Ply.X = Ply.X + (14 - Ply.X) * (dt * 3)
     ELSE
         sp = 24 * dt
-        'The ship stays centered and the view scrolls. Only at the top or bottom of
-        'the map, where the view can't scroll further, does the ship leave the center;
-        'heading back, it returns to the center before the view moves again.
-        IF InHeld(A_UP) THEN
-            IF Ply.Y > ZEN_CENTER THEN
-                Ply.Y = Ply.Y - sp
-                IF Ply.Y < ZEN_CENTER THEN Ply.Y = ZEN_CENTER
-            ELSEIF Zen.CamY > Zen.MapTop THEN
-                Zen.CamY = Zen.CamY - sp / 2
-                IF Zen.CamY < Zen.MapTop THEN Zen.CamY = Zen.MapTop
-            ELSE
-                Ply.Y = Ply.Y - sp
-            END IF
-        END IF
-        IF InHeld(A_DOWN) THEN
-            IF Ply.Y < ZEN_CENTER THEN
-                Ply.Y = Ply.Y + sp
-                IF Ply.Y > ZEN_CENTER THEN Ply.Y = ZEN_CENTER
-            ELSEIF Zen.CamY < Zen.MapBot THEN
-                Zen.CamY = Zen.CamY + sp / 2
-                IF Zen.CamY > Zen.MapBot THEN Zen.CamY = Zen.MapBot
-            ELSE
-                Ply.Y = Ply.Y + sp
-            END IF
-        END IF
-        IF Ply.Y < UpperLimit% THEN Ply.Y = UpperLimit%
-        IF Ply.Y > LowerLimit% THEN Ply.Y = LowerLimit%
+        'Vertical speed follows the keys through two layers of easing: the keys move a
+        'smoothed "intent" and the speed follows the intent. That gives an S-shaped
+        'ramp, so slides start gently, cruise, and glide to a stop with no hard edges.
+        dir = 0
+        IF InHeld(A_UP) THEN dir = dir - 1
+        IF InHeld(A_DOWN) THEN dir = dir + 1
+        Zen.VIn = Zen.VIn + (dir - Zen.VIn) * (1 - EXP(-ZEN_V_INTENT * dt))
+        Zen.VY = Zen.VY + (Zen.VIn * ZEN_VMAX - Zen.VY) * (1 - EXP(-ZEN_V_FOLLOW * dt))
+        IF dir = 0 AND ABS(Zen.VY) < .2 AND ABS(Zen.VIn) < .01 THEN Zen.VY = 0: Zen.VIn = 0
+        ZenSlide Zen.VY * dt
+        'The faster it slides, the more it banks (wings drawn closer together);
+        'it levels out at slightly lower speeds than it banks, so it doesn't flicker
+        fr = ABS(Zen.VY) / ZEN_VMAX
+        SELECT CASE Ply.Bank
+            CASE 0: IF fr > .35 THEN Ply.Bank = 1
+            CASE 1
+                IF fr > .75 THEN
+                    Ply.Bank = 2
+                ELSEIF fr < .25 THEN
+                    Ply.Bank = 0
+                END IF
+            CASE ELSE: IF fr < .62 THEN Ply.Bank = 1
+        END SELECT
         'Left and right: drift on screen and change cruising speed
         IF InHeld(A_RIGHT) AND Ply.X < 50 THEN Ply.X = Ply.X + sp / 2
         IF InHeld(A_LEFT) AND Ply.X > 8 THEN Ply.X = Ply.X - sp / 2
@@ -263,6 +262,46 @@ SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
     Zen.DShip = (Ply.Y - prevY) / 2
     IF Zen.DCam <> 0 THEN Zen.VMoveT = Game.T
 END SUB
+
+'Moves the ship up (negative) or down by this many half-rows. The ship stays centered
+'and the view scrolls; only at the top or bottom of the map, where the view can't go
+'further, does the ship leave the center. Heading back, it re-centers first.
+SUB ZenSlide (amount AS SINGLE)
+    DIM a AS SINGLE, s AS SINGLE
+    IF amount < 0 THEN
+        a = -amount
+        IF Ply.Y > ZEN_CENTER THEN
+            s = MinS!(a, Ply.Y - ZEN_CENTER)
+            Ply.Y = Ply.Y - s
+            a = a - s
+        END IF
+        IF a > 0 AND Zen.CamY > Zen.MapTop THEN
+            s = MinS!(a / 2, Zen.CamY - Zen.MapTop)
+            Zen.CamY = Zen.CamY - s
+            a = a - s * 2
+        END IF
+        IF a > 0 THEN Ply.Y = Ply.Y - a
+        IF Ply.Y <= UpperLimit% THEN Ply.Y = UpperLimit%: Zen.VY = 0: Zen.VIn = 0
+    ELSEIF amount > 0 THEN
+        a = amount
+        IF Ply.Y < ZEN_CENTER THEN
+            s = MinS!(a, ZEN_CENTER - Ply.Y)
+            Ply.Y = Ply.Y + s
+            a = a - s
+        END IF
+        IF a > 0 AND Zen.CamY < Zen.MapBot THEN
+            s = MinS!(a / 2, Zen.MapBot - Zen.CamY)
+            Zen.CamY = Zen.CamY + s
+            a = a - s * 2
+        END IF
+        IF a > 0 THEN Ply.Y = Ply.Y + a
+        IF Ply.Y >= LowerLimit% THEN Ply.Y = LowerLimit%: Zen.VY = 0: Zen.VIn = 0
+    END IF
+END SUB
+
+FUNCTION MinS! (a AS SINGLE, b AS SINGLE)
+    IF a < b THEN MinS! = a ELSE MinS! = b
+END FUNCTION
 
 SUB UpdateZenWorld (dt AS SINGLE)
     DIM i AS INTEGER, k AS INTEGER, a AS INTEGER, sc AS INTEGER, vy AS SINGLE, cam AS SINGLE
@@ -511,6 +550,9 @@ SUB EngagePortal
     cy = PortalScreenY% + 3
     Zen.Found = -1
     Zen.FoundT = Game.T
+    Zen.VY = 0
+    Zen.VIn = 0
+    Ply.Bank = 0
     Zen.PortalOn = 0
     Ply.ExitPhase = 3
     Ply.ExitT = Game.T
@@ -530,6 +572,7 @@ END SUB
 
 SUB EnterZenTally
     Ply.ExitPhase = 0
+    Ply.Bank = 0
     Game.FlashUntil = 0
     GoState ST_ZENTALLY
 END SUB

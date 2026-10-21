@@ -178,6 +178,9 @@ CONST MAX_ZEN_OBJS = 48
 CONST MAX_ZEN_SCENES = 80
 CONST MAX_ZEN_AREAS = 10
 CONST ZEN_CENTER = 25 'the ship's half-row while the view scrolls (screen center)
+CONST ZEN_VMAX = 24 'top vertical speed, half-rows per second
+CONST ZEN_V_INTENT = 3.5 'how quickly the smoothed up/down intent follows the keys (per second)
+CONST ZEN_V_FOLLOW = 3 'how quickly the speed follows that intent (lower = floatier)
 CONST ZEN_PORTAL_EVERY = 20 'the portal drifts past about this often (seconds at cruising speed)
 CONST ZEN_HINT_AFTER = 90 'seconds of searching before the gauge shows the portal's height
 CONST SHIP_COLOR = 14
@@ -409,6 +412,8 @@ TYPE ZenStateType
     LastReal AS DOUBLE
     DCam AS SINGLE 'view and ship movement this frame, in rows
     DShip AS SINGLE
+    VY AS SINGLE 'vertical speed in half-rows per second (builds up while up/down is held)
+    VIn AS SINGLE 'smoothed up/down intent, -1 to 1
 END TYPE
 
 TYPE BackType
@@ -460,6 +465,7 @@ TYPE PlayerType
     ExitPhase AS INTEGER
     ExitT AS DOUBLE
     ExitV AS SINGLE
+    Bank AS INTEGER 'zen mode: 0 level, 1-2 wings drawn closer together while sliding up or down
     ExitX0 AS SINGLE
     ExitY0 AS SINGLE
     ExitDur AS SINGLE

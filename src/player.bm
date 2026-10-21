@@ -34,6 +34,50 @@ SUB AddShipCell (x AS INTEGER, y AS INTEGER, c AS INTEGER)
     ShipCC(ShipN) = c
 END SUB
 
+'Banking (zen mode): the big ship drawn half-row by half-row with its wings pulled in
+'toward the body, as if rolling into a climb or dive. Offsets are relative to the nose:
+'the level ship has its wing tips 3 half-rows above and below it, banked ships 2 or 1.
+SUB BankedShipLayout (xi AS INTEGER, yi AS INTEGER)
+    DIM tip AS INTEGER, mid AS INTEGER
+    IF Ply.Bank = 1 THEN tip = 2: mid = 1 ELSE tip = 1: mid = 1
+    DIM n AS INTEGER, i AS INTEGER, j AS INTEGER, r AS INTEGER, bits AS INTEGER, done AS _BYTE
+    DIM cx(1 TO 11) AS INTEGER, cy(1 TO 11) AS INTEGER
+    'Body and nose, then the wings
+    n = 0
+    n = n + 1: cx(n) = -2: cy(n) = -1
+    n = n + 1: cx(n) = -2: cy(n) = 0
+    n = n + 1: cx(n) = -2: cy(n) = 1
+    n = n + 1: cx(n) = -1: cy(n) = -1
+    n = n + 1: cx(n) = -1: cy(n) = 0
+    n = n + 1: cx(n) = -1: cy(n) = 1
+    n = n + 1: cx(n) = 0: cy(n) = 0
+    n = n + 1: cx(n) = -3: cy(n) = -mid
+    n = n + 1: cx(n) = -3: cy(n) = mid
+    n = n + 1: cx(n) = -4: cy(n) = -tip
+    n = n + 1: cx(n) = -4: cy(n) = tip
+    'Pair up half-rows into cells: half-row h is the top of row (h+1)\2 when odd
+    FOR i = 1 TO n
+        r = (yi + cy(i) + 1) \ 2
+        done = 0
+        FOR j = 1 TO ShipN
+            IF ShipCX(j) = xi + cx(i) AND ShipCY(j) = r THEN done = -1: EXIT FOR
+        NEXT
+        IF NOT done THEN
+            bits = 0
+            FOR j = 1 TO n
+                IF cx(j) = cx(i) AND (yi + cy(j) + 1) \ 2 = r THEN
+                    IF (yi + cy(j)) MOD 2 THEN bits = bits OR 1 ELSE bits = bits OR 2
+                END IF
+            NEXT
+            SELECT CASE bits
+                CASE 1: AddShipCell xi + cx(i), r, 223
+                CASE 2: AddShipCell xi + cx(i), r, 220
+                CASE ELSE: AddShipCell xi + cx(i), r, 219
+            END SELECT
+        END IF
+    NEXT
+END SUB
+
 'Builds the list of cells the ship occupies (same glyphs as the original game)
 SUB ComputeShipLayout
     DIM xi AS INTEGER, yi AS INTEGER, r AS INTEGER, odd AS _BYTE
@@ -42,6 +86,10 @@ SUB ComputeShipLayout
     r = _CEIL(yi / 2)
     odd = (r <> yi / 2)
     ShipN = 0
+    IF Ply.Size = 2 AND Ply.Bank > 0 THEN
+        BankedShipLayout xi, yi
+        EXIT SUB
+    END IF
     IF Ply.Size = 1 THEN
         IF odd THEN
             AddShipCell xi - 1, r - 1, 220
@@ -108,6 +156,7 @@ END SUB
 SUB PlacePlayerForStart
     Ply.ExitPhase = 0
     Ply.ExitDur = 0
+    Ply.Bank = 0
     Ply.X = 5
     Ply.Y = 25
     Ply.Size = 2
