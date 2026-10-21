@@ -94,10 +94,19 @@ SUB ResetPlayerForNewGame
     NEXT
     Ply.CurSpecial = SP_FREEZE
     Ply.Combo = 0
+    'The game clock restarts at zero, so clear every timestamp from a previous game
+    Ply.LastShot = -100
+    Ply.LastSpecialT = -100
+    Ply.ComboT = -100
+    Ply.LastEnergyUp = -100
+    Ply.OverdriveEnd = 0
+    Ply.FreezeT = -100
+    Ply.DeathT = -100
     PlacePlayerForStart
 END SUB
 
 SUB PlacePlayerForStart
+    Ply.ExitPhase = 0
     Ply.X = 5
     Ply.Y = 25
     Ply.Size = 2
@@ -175,6 +184,11 @@ SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
 
     IF Game.T - Ply.ComboT > 1.5 THEN Ply.Combo = 0
 
+    IF Ply.ExitPhase >= 2 THEN
+        UpdateExitSequence dt
+        EXIT SUB
+    END IF
+
     'Movement is free; energy is only spent by the guns
     prevYi = INT(Ply.Y)
     sp = 30 * dt
@@ -245,6 +259,43 @@ FUNCTION ShotCost!
     IF Game.Difficulty = DIFF_HARD THEN cost = cost * 1.2
     ShotCost! = cost
 END FUNCTION
+
+'Level cleared: the ship lines up at the middle of the left edge, then blasts off to the right
+SUB UpdateExitSequence (dt AS SINGLE)
+    DIM tx AS SINGLE, ty AS SINGLE, sp AS SINGLE, k AS INTEGER
+    Ply.FiredThisTick = 0
+    IF Ply.Energy < 100 THEN Ply.Energy = Ply.Energy + EnergyRegen! * dt
+    IF Ply.Energy > 100 THEN Ply.Energy = 100
+    SELECT CASE Ply.ExitPhase
+        CASE 2
+            'Glide back to the starting spot
+            tx = LeftLimit% + 1
+            ty = 25
+            sp = 40 * dt
+            Ply.MovingRight = 0
+            IF ABS(tx - Ply.X) <= sp THEN Ply.X = tx ELSE Ply.X = Ply.X + SGN(tx - Ply.X) * sp
+            IF ABS(ty - Ply.Y) <= sp THEN Ply.Y = ty ELSE Ply.Y = Ply.Y + SGN(ty - Ply.Y) * sp
+            IF Ply.X = tx AND Ply.Y = ty THEN
+                Ply.ExitPhase = 3
+                Ply.ExitT = Game.T
+                Ply.ExitV = 0
+                PlaySfx SndFullRecharge
+            END IF
+        CASE 3
+            'Accelerate off the right edge with jets roaring and stars streaking
+            Ply.MovingRight = -1
+            IF Game.T - Ply.ExitT > .35 THEN
+                Ply.ExitV = Ply.ExitV + 110 * dt
+                Ply.X = Ply.X + Ply.ExitV * dt
+            END IF
+            Game.StarInterval = Game.StarInterval - .4 * dt
+            IF Game.StarInterval < 0 THEN Game.StarInterval = 0
+            Ply.SmokeT = Game.T
+            IF RND < .5 THEN AddParticle Ply.X - 6 - RND * 4, ShipRow! + RndRange!(-.5, 1.2), -RndRange!(10, 25), RndRange!(-1, 1), .25
+    END SELECT
+    Ply.PrevX = INT(Ply.X)
+    Ply.PrevY = INT(Ply.Y)
+END SUB
 
 SUB TopMessage (s AS STRING)
     Game.TopMsg = s
@@ -482,15 +533,23 @@ SUB LoseLife
         IF Bul(i).Owner = 2 THEN Bul(i).Active = 0
     NEXT
     FOR i = 1 TO MAX_EN
-        IF En(i).Active AND En(i).Pool THEN
-            En(i).X = 81 + RND * 80
+        IF En(i).Active THEN
+            IF En(i).Pool THEN
+                En(i).X = 81 + RND * 80
+            ELSEIF En(i).Boss = 0 AND En(i).X < 35 THEN
+                'Clear stray minions and hazards from the spawn area (gates stay: they're part of the walls)
+                IF En(i).Move <> MV_GATE AND En(i).Move <> MV_ANCHORED THEN En(i).Active = 0
+            END IF
         END IF
     NEXT
+    BossesRetreat
     PlacePlayerForStart
+    'Blink-invulnerable while flying back in, plus the usual grace afterward
+    Ply.LastDamage = Game.T + 1
     Ply.Weapon = MaxI%(1, Ply.Weapon - 1)
     Lvl.ShowNameT = Game.T
     PlaySong Lvl.Song
-    IF BossActive% THEN PlaySong SONG_BOSS
+    IF BossActive% AND Lvl.Song <> SONG_FINAL THEN PlaySong SONG_BOSS
 END SUB
 
 SUB DrawPlayer
@@ -518,6 +577,8 @@ SUB DrawPlayer
             IF r - stp >= 2 THEN _PRINTSTRING (xi + stp, r - stp), MID$(BoomChars, stp, 1)
         END IF
     END IF
+
+    IF Ply.ExitPhase = 3 THEN DrawJets xi, r
 
     IF Game.T - Ply.LastGrow < 1 THEN clr = INT(RND * 14) + 1 ELSE clr = SHIP_COLOR
     IF Game.T - Ply.LastDamage < GRACE_TIME THEN
@@ -555,6 +616,37 @@ SUB DrawPlayer
     END IF
 
     IF Game.T < Game.TopMsgUntil THEN Banner 1, RTRIM$(Game.TopMsg), 0, 7
+END SUB
+
+'Exhaust flame from the nozzle between the rear fins. It is half a row thick
+'(same half-block as the nose and lasers), tapers into embers, and grows with speed.
+SUB DrawJets (xi AS INTEGER, r AS INTEGER)
+    DIM n AS INTEGER, k AS INTEGER, cx AS INTEGER, c AS INTEGER, startX AS INTEGER
+    DIM fr AS SINGLE, ch AS STRING
+    IF r < 2 OR r > 25 THEN EXIT SUB
+    n = 3 + INT(Ply.ExitV / 6)
+    IF n > 20 THEN n = 20
+    n = n + INT(RND * 3) - 1
+    IF Ply.Size = 2 THEN startX = xi - 3 ELSE startX = xi - 2
+    FOR k = 0 TO n - 1
+        cx = startX - k
+        IF cx < 1 THEN EXIT FOR
+        IF cx > 80 THEN _CONTINUE
+        fr = k / n
+        ch = NoseChar$
+        SELECT CASE fr
+            CASE IS < .15: c = 15
+            CASE IS < .35: c = 14
+            CASE IS < .6: c = 12
+            CASE IS < .8: c = 4
+            CASE ELSE
+                c = 8
+                ch = CHR$(250)
+                IF RND < .5 THEN _CONTINUE
+        END SELECT
+        COLOR c
+        _PRINTSTRING (cx, r), ch
+    NEXT
 END SUB
 
 'Checks the ship's cells against the collision map

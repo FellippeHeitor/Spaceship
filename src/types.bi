@@ -383,6 +383,9 @@ TYPE PlayerType
     MoveDY AS INTEGER
     FiredThisTick AS _BYTE
     Continues AS INTEGER
+    ExitPhase AS INTEGER
+    ExitT AS DOUBLE
+    ExitV AS SINGLE
 END TYPE
 
 TYPE GameType

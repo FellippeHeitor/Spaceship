@@ -308,14 +308,6 @@ SUB DrawOverlays
     'Death message
     IF Ply.Dying THEN Banner 13, " " + RTRIM$(Ply.DeathMsg) + " ", 15, 4
 
-    'Countdown to the next mission
-    IF Lvl.GoalDone AND Lvl.Countdown > 0 AND NOT Ply.Dying THEN
-        remain = 5 - (Game.T - Lvl.Countdown)
-        IF remain < 0 THEN remain = 0
-        COLOR 15, 0
-        PutText 58, 25, " NEXT MISSION IN" + STR$(INT(remain)) + " "
-    END IF
-
     IF Game.Paused THEN
         DrawLogo 100, 8 + INT(8 * ABS(SIN(RealNow# * 2)))
         Banner 13, "     PAUSED      ", 15, 1

@@ -340,6 +340,23 @@ SUB BossUpdate (i AS INTEGER, dt AS SINGLE)
     END SELECT
 END SUB
 
+'After the player dies, bosses that were charging into the player's side go back to theirs
+SUB BossesRetreat
+    DIM i AS INTEGER
+    FOR i = 1 TO MAX_EN
+        IF En(i).Active AND En(i).Boss = 1 THEN
+            SELECT CASE Defs(En(i).DefID).AI
+                CASE AI_ROACH, AI_AMOEBA_S
+                    IF En(i).State >= 1 THEN
+                        En(i).State = 1
+                        En(i).StateT = Game.ET
+                        En(i).X = En(i).Param
+                    END IF
+            END SELECT
+        END IF
+    NEXT
+END SUB
+
 SUB BounceY (i AS INTEGER, dt AS SINGLE, top AS SINGLE, bot AS SINGLE)
     IF En(i).VY = 0 THEN En(i).VY = 4
     En(i).Y = En(i).Y + En(i).VY * dt

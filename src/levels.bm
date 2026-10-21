@@ -477,7 +477,10 @@ SUB UpdateLevel (dt AS SINGLE)
         END SELECT
         IF done THEN GoalReached
     ELSE
-        IF Lvl.Countdown > 0 AND Game.T - Lvl.Countdown > 5 THEN
+        'Exit sequence: give enemies a moment to flee, then line up and blast off
+        IF Ply.ExitPhase = 1 AND Game.T - Lvl.Countdown > 1.8 AND NOT Ply.Recharge THEN Ply.ExitPhase = 2
+        IF Ply.ExitPhase = 3 AND Ply.X > 100 THEN
+            Ply.ExitPhase = 0
             Lvl.Countdown = 0
             EnterTally
         END IF
@@ -489,6 +492,9 @@ SUB GoalReached
     Lvl.GoalDone = -1
     Lvl.Countdown = Game.T
     Lvl.Storm = 0
+    Ply.ExitPhase = 1
+    Ply.Freeze = 0
+    ShowMessage "MISSION COMPLETE", 2, 2
     PlaySfx SndFullRecharge
     IF Test.Active THEN LogMsg "Goal reached: chapter" + STR$(Game.ChapterIdx) + " at t=" + STR$(INT(Lvl.T))
     'Remaining enemies flee (the original MakeEnemyEscape)
@@ -524,6 +530,11 @@ SUB StartChapter (idx AS INTEGER)
     Lvl.ChapterNo = Chapters(idx).Num
     Lvl.ShowNameT = Game.T
     Lvl.StartScore = Ply.Score
+    'The ship slides in from the left, like at the start of the game
+    Ply.X = 5
+    Ply.Y = 25
+    Ply.SlideIn = -1
+    Ply.ExitPhase = 0
     Ply.Recharge = -1
     Ply.Energy = 0
     Ply.RechargeT = Game.T
