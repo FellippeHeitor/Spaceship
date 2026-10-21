@@ -478,7 +478,12 @@ SUB UpdateLevel (dt AS SINGLE)
         IF done THEN GoalReached
     ELSE
         'Exit sequence: give enemies a moment to flee, then line up and blast off
-        IF Ply.ExitPhase = 1 AND Game.T - Lvl.Countdown > 1.8 AND NOT Ply.Recharge THEN Ply.ExitPhase = 2
+        IF Ply.ExitPhase = 1 AND Game.T - Lvl.Countdown > 1.8 AND NOT Ply.Recharge THEN
+            Ply.ExitPhase = 2
+            Ply.ExitT = Game.T
+            Ply.ExitX0 = Ply.X
+            Ply.ExitY0 = Ply.Y
+        END IF
         IF Ply.ExitPhase = 3 AND Ply.X > 100 THEN
             Ply.ExitPhase = 0
             Lvl.Countdown = 0

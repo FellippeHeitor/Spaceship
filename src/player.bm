@@ -107,6 +107,7 @@ END SUB
 
 SUB PlacePlayerForStart
     Ply.ExitPhase = 0
+    Ply.ExitDur = 0
     Ply.X = 5
     Ply.Y = 25
     Ply.Size = 2
@@ -262,20 +263,40 @@ END FUNCTION
 
 'Level cleared: the ship lines up at the middle of the left edge, then blasts off to the right
 SUB UpdateExitSequence (dt AS SINGLE)
-    DIM tx AS SINGLE, ty AS SINGLE, sp AS SINGLE, k AS INTEGER
+    DIM tx AS SINGLE, ty AS SINGLE, k AS INTEGER, d AS SINGLE, u AS SINGLE, m AS SINGLE
+    DIM x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, x2 AS SINGLE, y2 AS SINGLE
     Ply.FiredThisTick = 0
     IF Ply.Energy < 100 THEN Ply.Energy = Ply.Energy + EnergyRegen! * dt
     IF Ply.Energy > 100 THEN Ply.Energy = 100
     SELECT CASE Ply.ExitPhase
         CASE 2
-            'Glide back to the starting spot
+            'Swing back to the starting spot along a cubic Bezier curve:
+            'drift forward a little, arc around, and glide in level from the right.
+            'X is in cells and Y in half-rows, which are the same size on screen.
             tx = LeftLimit% + 1
             ty = 25
-            sp = 40 * dt
+            x0 = Ply.ExitX0
+            y0 = Ply.ExitY0
+            x1 = x0 + 10
+            IF x1 > 76 THEN x1 = 76
+            y1 = y0 + (y0 - ty) * .25
+            x2 = tx + 16
+            y2 = ty
+            IF Ply.ExitDur = 0 THEN
+                d = SQR((x0 - tx) ^ 2 + (y0 - ty) ^ 2)
+                Ply.ExitDur = Clamp!(.9 + d / 45, .9, 2.2)
+            END IF
+            u = Clamp!((Game.T - Ply.ExitT) / Ply.ExitDur, 0, 1)
+            u = u * u * (3 - 2 * u)
+            m = 1 - u
+            Ply.X = m * m * m * x0 + 3 * m * m * u * x1 + 3 * m * u * u * x2 + u * u * u * tx
+            Ply.Y = m * m * m * y0 + 3 * m * m * u * y1 + 3 * m * u * u * y2 + u * u * u * ty
+            Ply.Y = Clamp!(Ply.Y, UpperLimit%, LowerLimit%)
             Ply.MovingRight = 0
-            IF ABS(tx - Ply.X) <= sp THEN Ply.X = tx ELSE Ply.X = Ply.X + SGN(tx - Ply.X) * sp
-            IF ABS(ty - Ply.Y) <= sp THEN Ply.Y = ty ELSE Ply.Y = Ply.Y + SGN(ty - Ply.Y) * sp
-            IF Ply.X = tx AND Ply.Y = ty THEN
+            IF Game.T - Ply.ExitT >= Ply.ExitDur THEN
+                Ply.X = tx
+                Ply.Y = ty
+                Ply.ExitDur = 0
                 Ply.ExitPhase = 3
                 Ply.ExitT = Game.T
                 Ply.ExitV = 0
@@ -497,7 +518,8 @@ SUB HurtPlayer (kind AS INTEGER)
         ShowMessage "UNIT DAMAGED!", 4, 1.5
         AddExplosion Ply.X - 1, ShipRow!, 0
     ELSE
-        KillPlayer "BUSTED!!"
+        'A fatal hit in a bonus stage just ends the stage (no life lost)
+        IF Lvl.Bonus THEN KillPlayer "SUPPLY RUN OVER" ELSE KillPlayer "BUSTED!!"
     END IF
 END SUB
 
@@ -523,6 +545,15 @@ END SUB
 
 SUB LoseLife
     DIM i AS INTEGER
+    IF Lvl.Bonus THEN
+        'Bonus stages never cost a life: go straight to the tally and the next level
+        Ply.Dying = 0
+        Ply.Alive = -1
+        SetShipSize 2
+        Lvl.GoalDone = -1
+        EnterTally
+        EXIT SUB
+    END IF
     Ply.Lives = Ply.Lives - 1
     IF Ply.Lives < 0 THEN
         GoGameOver

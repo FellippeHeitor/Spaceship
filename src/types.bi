@@ -331,7 +331,7 @@ END TYPE
 
 TYPE StarType
     X AS SINGLE
-    Y AS INTEGER
+    Y AS SINGLE
     Speed AS INTEGER
     Clr AS INTEGER
     Ch AS STRING * 1
@@ -341,7 +341,7 @@ TYPE BackType
     Active AS _BYTE
     Sprite AS INTEGER
     X AS SINGLE
-    Y AS INTEGER
+    Y AS SINGLE
     Speed AS SINGLE
     Clr AS INTEGER
 END TYPE
@@ -386,6 +386,9 @@ TYPE PlayerType
     ExitPhase AS INTEGER
     ExitT AS DOUBLE
     ExitV AS SINGLE
+    ExitX0 AS SINGLE
+    ExitY0 AS SINGLE
+    ExitDur AS SINGLE
 END TYPE
 
 TYPE GameType

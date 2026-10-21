@@ -70,4 +70,4 @@ ENEMY HIVE_CELL   sprite=HIVE_CELL hp=10 pts=200 color=5 move=ORBIT speed=.9 amp
 ENEMY MIRROR      sprite=MIRROR hp=2 pts=500 color=12 move=MIRROR speed=14
 
 ; --- Bonus stages ----------------------------------------------------------------------
-ENEMY DEBRIS      sprite=DEBRIS hp=1 pts=0 color=8 move=DRIFT speed=14-20 vspeed=1 invuln=1 framerate=.2
+ENEMY DEBRIS      sprite=DEBRIS hp=2 pts=25 color=8 move=DRIFT speed=14-20 vspeed=1 framerate=.2

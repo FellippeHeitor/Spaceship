@@ -23,7 +23,27 @@ SUB ResetStars
 END SUB
 
 SUB UpdateStars (dt AS SINGLE)
-    DIM i AS INTEGER, iv AS SINGLE
+    DIM i AS INTEGER, iv AS SINGLE, dy AS SINGLE, h AS INTEGER
+    STATIC lastShipY AS SINGLE
+
+    'Vertical parallax: when the ship climbs or dives, the starfield slides the other way.
+    'Nearer (faster) stars slide more than distant ones; the backdrop barely moves.
+    dy = (Ply.Y - lastShipY) / 2
+    lastShipY = Ply.Y
+    IF ABS(dy) > 1 THEN dy = 0
+    IF dy <> 0 AND NOT Ply.Dying THEN
+        FOR i = 1 TO MAX_STARS
+            Stars(i).Y = Stars(i).Y - dy * .15 * Stars(i).Speed
+            IF Stars(i).Y < 2 THEN Stars(i).Y = Stars(i).Y + 24
+            IF Stars(i).Y >= 26 THEN Stars(i).Y = Stars(i).Y - 24
+        NEXT
+        FOR i = 1 TO MAX_BACK
+            IF Back(i).Active THEN
+                h = Sprites(Back(i).Sprite).H
+                Back(i).Y = Clamp!(Back(i).Y - dy * .08, 2 - h / 2, 25 - h / 2)
+            END IF
+        NEXT
+    END IF
     'Star interval: lower = faster. Moving forward or recharging speeds the stars up.
     IF Ply.Recharge OR (Ply.MovingRight AND NOT Ply.Freeze) THEN
         Game.StarInterval = Game.StarInterval - .15 * dt
@@ -54,11 +74,11 @@ END SUB
 SUB DrawStars
     DIM i AS INTEGER, ch AS STRING
     FOR i = 1 TO MAX_STARS
-        IF Stars(i).X >= 1 AND Stars(i).X <= 80 AND Stars(i).Y >= 2 AND Stars(i).Y <= 25 THEN
+        IF Stars(i).X >= 1 AND Stars(i).X <= 80 AND INT(Stars(i).Y) >= 2 AND INT(Stars(i).Y) <= 25 THEN
             COLOR Stars(i).Clr
             ch = Stars(i).Ch
             IF Game.StarInterval = 0 THEN ch = CHR$(196)
-            _PRINTSTRING (INT(Stars(i).X), Stars(i).Y), ch
+            _PRINTSTRING (INT(Stars(i).X), INT(Stars(i).Y)), ch
         END IF
     NEXT
 END SUB
@@ -107,7 +127,7 @@ END SUB
 SUB DrawBackdrop
     DIM i AS INTEGER
     FOR i = 1 TO MAX_BACK
-        IF Back(i).Active THEN DrawSprite Back(i).Sprite, 1, INT(Back(i).X), Back(i).Y, Back(i).Clr, 0
+        IF Back(i).Active THEN DrawSprite Back(i).Sprite, 1, INT(Back(i).X), INT(Back(i).Y), Back(i).Clr, 0
     NEXT
 END SUB
 
