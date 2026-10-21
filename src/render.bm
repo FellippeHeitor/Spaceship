@@ -137,6 +137,7 @@ SUB RenderPlay
     DrawFX
     DrawHUD
     DrawOverlays
+    IF Game.Demo THEN DrawDemoOverlay
 END SUB
 
 SUB DrawHUD

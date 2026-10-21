@@ -55,8 +55,8 @@ ENEMY INTERCEPTOR sprite=INTERCEPTOR hp=1 pts=75 color=9 move=SINE speed=16 amp=
 ENEMY GUNSHIP     sprite=GUNSHIP hp=6 pts=300 color=7 move=HOVER speed=12 vspeed=4 fire=SPREAD3 firerate=1.4 bspeed=15 drop=WEAPON:15 knock=1
 ENEMY DRONE       sprite=DRONE hp=1 pts=25 color=14 move=STRAIGHT speed=15
 ENEMY CARRIER     title=CARRIER sprite=CARRIER hp=120 pts=4000 color=7 move=BOSS ai=CARRIER boss=1 fire=SPREAD3 firerate=3 bspeed=14
-ENEMY TURRET_B    sprite=TURRET_B hp=3 pts=100 color=7 move=ANCHORED fire=AIMED firerate=1.8 bspeed=14
-ENEMY TURRET_T    sprite=TURRET_T hp=3 pts=100 color=7 move=ANCHORED fire=AIMED firerate=1.8 bspeed=14
+ENEMY TURRET_B    sprite=TURRET_B hp=3 pts=100 color=7 move=ANCHORED fire=AIMED firerate=2.8 bspeed=12
+ENEMY TURRET_T    sprite=TURRET_T hp=3 pts=100 color=7 move=ANCHORED fire=AIMED firerate=2.8 bspeed=12
 ENEMY GATE        sprite=P_STAR hp=1 pts=0 move=GATE invuln=1
 ENEMY DREAD       title=DREADNOUGHT sprite=DREAD hp=1 pts=15000 color=7 move=BOSS ai=DREAD boss=1 invuln=1
 ENEMY DREAD_TUR   sprite=DREAD_TUR hp=30 pts=800 color=12 move=ATTACHED boss=2 fire=AIMED firerate=1.5 bspeed=15

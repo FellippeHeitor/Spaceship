@@ -575,7 +575,7 @@ SUB MoveEnemy (i AS INTEGER, dt AS SINGLE, doStep AS _BYTE)
         CASE MV_GATE
             IF Lvl.Terrain <> TER_NONE THEN En(i).X = En(i).X - Lvl.TerSpeed * dt ELSE En(i).X = En(i).X - 8 * dt
             ph = (Game.ET - En(i).Born) - INT((Game.ET - En(i).Born) / 3.2) * 3.2
-            IF ph < 1.6 THEN
+            IF ph < 1.2 THEN
                 En(i).State = 1
             ELSEIF ph > 2.7 THEN
                 En(i).State = 2

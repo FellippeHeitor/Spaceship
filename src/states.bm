@@ -2,6 +2,7 @@
 
 SUB RunFrame
     PollInput
+    IF Game.Demo THEN CheckDemoEnd
     IF Game.State <> ST_NAMEENTRY AND NOT ControlsWaiting% THEN
         IF KeyHitBuffer = 109 OR KeyHitBuffer = 77 THEN ToggleMute
     END IF
@@ -62,7 +63,7 @@ SUB NewGame (chapterIdx AS INTEGER)
     Game.StartChapter = chapterIdx
     ResetPlayerForNewGame
     Game.ChapterIdx = chapterIdx
-    IF chapterIdx = Sectors(Chapters(chapterIdx).Sector).FirstChapter AND NOT Test.Fast THEN
+    IF chapterIdx = Sectors(Chapters(chapterIdx).Sector).FirstChapter AND NOT Test.Fast AND NOT Game.Demo THEN
         GoState ST_BRIEFING
         PlaySong SONG_TITLE
     ELSE
@@ -108,6 +109,8 @@ SUB PlayFrame
         InPressed(a) = InPressed(a) OR carry(a)
     NEXT
     FOR s = 1 TO steps
+        'Fast autotests run several ticks per frame: let the bot steer on each one
+        IF s > 1 AND (Test.Bot OR Game.Demo) THEN BotSteer
         UpdatePlay FIXED_DT, (s = 1)
         IF Game.State <> ST_PLAY THEN EXIT FOR
         IF Test.Active THEN
@@ -271,6 +274,11 @@ SUB TitleFrame
     COLOR 8
     CenterText 23, "ARROWS/WASD MOVE  Z/SPACE FIRE  X SPECIAL  C SELECT  ENTER START  M MUTE"
     CenterText 25, "(C) 2016-2026 FELLIPPE HEITOR  -  MADE WITH QB64"
+
+    IF UINow# - MaxD#(Game.StateT, Game.IdleT) > DEMO_IDLE AND NOT Test.Active THEN
+        StartDemo
+        EXIT SUB
+    END IF
 
     IF MenuNav%(n) THEN
         SELECT CASE Game.MenuSel

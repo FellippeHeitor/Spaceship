@@ -39,6 +39,8 @@ All of these can be changed under **Controls** on the title screen.
 - **Combos:** kills in quick succession raise your score multiplier, up to ×8.
 - **Enemies hold their fire until you attack first.** That rule from the original game still applies on Easy and Normal; on Hard they shoot on sight.
 
+Leave the title screen alone for 15 seconds and the autopilot plays a demo of a chapter from a sector you have already reached. Press any key to get back to the menu. Demos never save scores or progress.
+
 ## Project layout
 
 ```
@@ -46,7 +48,8 @@ Spaceship.bas        startup, main loop, logo
 src/types.bi         constants, types and shared state
 src/*.bm             engine modules: player, enemies, bosses, bullets, pickups,
                      levels, world (stars/terrain), render, fx, input, audio,
-                     config, states (menus and screens), test (autopilot)
+                     config, states (menus and screens), demo (attract mode),
+                     test (autopilot)
 data/sprites.txt     all sprites, as plain ASCII art
 data/enemies.txt     enemy definitions
 data/campaign.txt    sectors, briefings and chapter order
@@ -96,7 +99,7 @@ Spaceship -autotest 600 -fast -shots shots/ -every 10
 
 F1 shows a debug overlay with FPS and entity counts while you play.
 
-Autotest runs are muted unless you add `-sound`. The log lists chapter starts and goals, boss fights, deaths, tallies and any runtime errors.
+Autotest runs are muted unless you add `-sound`. The log lists chapter starts and goals, boss fights, every hit the ship takes and what caused it, deaths, tallies and any runtime errors.
 
 ## Credits
 

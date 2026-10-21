@@ -15,6 +15,9 @@
 SUB ParseArgs
     DIM i AS INTEGER, a AS STRING, startCh AS INTEGER, diff AS INTEGER, wantSound AS _BYTE
     Test.ShotEvery = 0
+    'Fixed-length strings start out as zero bytes, which RTRIM$ keeps: blank them
+    Test.ShotDir = ""
+    Test.LogFile = ""
     FOR i = 1 TO _COMMANDCOUNT
         a = LCASE$(COMMAND$(i))
         SELECT CASE a
@@ -72,11 +75,36 @@ SUB FinishTest (reason AS STRING)
     SYSTEM
 END SUB
 
+'Logs what hit the ship (only hits that can do damage)
+SUB LogHit (what AS STRING)
+    IF Ply.Dying OR Ply.Recharge OR Lvl.GoalDone OR Ply.Shield THEN EXIT SUB
+    IF Game.T - Ply.LastDamage < GRACE_TIME THEN EXIT SUB
+    LogMsg "Hit by " + what + " (chapter" + STR$(Game.ChapterIdx) + ")"
+END SUB
+
+'Re-runs the bot between ticks of one frame, changing only the movement keys
+'(fire and specials keep the frame's single press)
+SUB BotSteer
+    DIM a AS INTEGER, saved(1 TO A_COUNT) AS _BYTE
+    IF Game.State <> ST_PLAY THEN EXIT SUB
+    FOR a = 1 TO A_COUNT
+        saved(a) = InHeld(a)
+        InHeld(a) = 0
+    NEXT
+    BotInput
+    FOR a = 1 TO A_COUNT
+        SELECT CASE a
+            CASE A_UP, A_DOWN, A_LEFT, A_RIGHT
+            CASE ELSE: InHeld(a) = saved(a)
+        END SELECT
+    NEXT
+END SUB
+
 'Fake input for the autopilot
 SUB BotInput
     DIM i AS INTEGER, best AS INTEGER, bd AS SINGLE, d AS SINGLE, targetRow AS SINGLE, shipRowNow AS SINGLE
-    DIM dx AS SINGLE, dy AS SINGLE, dodge AS SINGLE, desiredX AS SINGLE, top AS INTEGER, bot AS INTEGER
-    DIM c AS INTEGER, aligned AS _BYTE, cy AS SINGLE, tok AS STRING
+    DIM dx AS SINGLE, dy AS SINGLE, dodge AS SINGLE, desiredX AS SINGLE, top AS SINGLE, bot AS SINGLE
+    DIM c AS INTEGER, aligned AS _BYTE, cy AS SINGLE, tok AS STRING, tHit AS SINGLE
     STATIC lastAct AS DOUBLE
 
     IF Game.State <> ST_PLAY AND LEN(TestMenuScript) > 0 THEN
@@ -136,24 +164,44 @@ SUB BotInput
         END IF
     NEXT
 
-    'Stay inside terrain gaps
-    IF Lvl.Terrain <> TER_NONE OR TerTop(40) > 0 OR TerBot(40) > 0 THEN
-        c = INT(Ply.X) + 6
-        IF c > 80 THEN c = 80
-        top = TerrainTopRow%(c) + 2
-        bot = TerrainBotRow%(c) - 2
-        IF targetRow < top THEN targetRow = top
-        IF targetRow > bot THEN targetRow = bot
+    'Ship rows that keep the whole hull off the walls, with a short lookahead
+    'since walls scroll in from the right (Y is in half-rows)
+    top = 0
+    bot = 0
+    FOR c = UpperLimit% TO LowerLimit%
+        IF BotHullClear%(c) THEN
+            IF top = 0 THEN top = c
+            bot = c
+        END IF
+    NEXT
+    IF top = 0 THEN
+        top = Ply.Y / 2
+        bot = top
+    ELSE
+        'Aim one half-row inside the edges so the steering deadband can't carry the hull out
+        IF bot - top >= 2 THEN top = top + 1: bot = bot - 1
+        top = top / 2
+        bot = bot / 2
     END IF
 
     'Dodge bullets and bodies ahead
     dodge = 0
+    'Only bullets whose path crosses the hull soon count (not ones flying past or away)
     FOR i = 1 TO MAX_BUL
         IF Bul(i).Active AND Bul(i).Owner = 2 THEN
-            dx = Bul(i).X - Ply.X
-            dy = Bul(i).Y - shipRowNow
-            IF dx > -5 AND dx < 14 AND ABS(dy) < 2.5 THEN
-                IF dy >= 0 THEN dodge = dodge - 1 ELSE dodge = dodge + 1
+            tHit = -1
+            IF Bul(i).X >= Ply.X - 5 AND Bul(i).X <= Ply.X + 1 THEN
+                tHit = 0
+            ELSEIF Bul(i).X > Ply.X + 1 AND Bul(i).DX < 0 THEN
+                tHit = (Bul(i).X - Ply.X - 1) / -Bul(i).DX
+            ELSEIF Bul(i).X < Ply.X - 5 AND Bul(i).DX > 0 THEN
+                tHit = (Ply.X - 5 - Bul(i).X) / Bul(i).DX
+            END IF
+            IF tHit >= 0 AND tHit < .8 THEN
+                dy = Bul(i).Y + Bul(i).DY * tHit - shipRowNow
+                IF ABS(dy) < 2.5 THEN
+                    IF dy >= 0 THEN dodge = dodge - 1 ELSE dodge = dodge + 1
+                END IF
             END IF
         END IF
     NEXT
@@ -170,7 +218,14 @@ SUB BotInput
             END IF
         END IF
     NEXT
-    IF dodge <> 0 THEN targetRow = shipRowNow + SGN(dodge) * 5
+    IF dodge <> 0 THEN
+        targetRow = shipRowNow + SGN(dodge) * 5
+        'No room that way: dodge the other way instead of into the wall
+        IF targetRow < top OR targetRow > bot THEN targetRow = shipRowNow - SGN(dodge) * 5
+    END IF
+    'Walls win over everything else
+    IF targetRow < top THEN targetRow = top
+    IF targetRow > bot THEN targetRow = bot
 
     IF targetRow * 2 > Ply.Y + 1 THEN InHeld(A_DOWN) = -1
     IF targetRow * 2 < Ply.Y - 1 THEN InHeld(A_UP) = -1
@@ -200,9 +255,23 @@ SUB BotInput
     IF desiredX < 6 THEN desiredX = 6
     IF Ply.X > desiredX + 3 THEN InHeld(A_LEFT) = -1: InHeld(A_RIGHT) = 0
 
-    aligned = ABS(targetRow - shipRowNow) < 2.5
-    IF best > 0 AND (aligned OR Ply.Energy > 40) THEN InHeld(A_FIRE) = -1
-    IF best > 0 AND Ply.Weapon >= 3 THEN InHeld(A_FIRE) = -1
+    'Laser gates: back off while one ahead is lit or blinking, slip through when it's dark
+    FOR i = 1 TO MAX_EN
+        IF En(i).Active AND En(i).Move = MV_GATE AND En(i).State <> 0 THEN
+            IF En(i).X > Ply.X - 6 AND En(i).X < Ply.X + 8 THEN
+                InHeld(A_LEFT) = -1
+                InHeld(A_RIGHT) = 0
+            END IF
+        END IF
+    NEXT
+
+    'Shoot when lined up with a target in laser range; spray only with energy to spare
+    'so the gun gets time to recharge (it only refills while not firing)
+    IF best THEN
+        aligned = ABS(En(best).Y + En(best).H / 2 - shipRowNow) < 2 AND En(best).X - Ply.X < 26
+        IF aligned AND Ply.Energy > 8 THEN InHeld(A_FIRE) = -1
+        IF Ply.Energy > 60 AND (Ply.Weapon >= 3 OR En(best).X - Ply.X < 26) THEN InHeld(A_FIRE) = -1
+    END IF
 
     IF Game.T - Test.BotT > 4 THEN
         IF SpecialCount(Ply.CurSpecial) > 0 AND (VisibleEnemyCount% >= 6 OR BossActive%) THEN
@@ -213,6 +282,24 @@ SUB BotInput
         END IF
     END IF
 END SUB
+
+'True when the ship at half-row y would clear the walls under it and a few columns ahead
+FUNCTION BotHullClear% (y AS INTEGER)
+    DIM saveY AS SINGLE, i AS INTEGER, c AS INTEGER, ok AS _BYTE
+    saveY = Ply.Y
+    Ply.Y = y
+    ComputeShipLayout
+    ok = -1
+    FOR i = 1 TO ShipN
+        FOR c = ShipCX(i) - 3 TO ShipCX(i) + 6
+            IF ShipCY(i) < TerrainTopRow%(c) OR ShipCY(i) > TerrainBotRow%(c) THEN ok = 0: EXIT FOR
+        NEXT
+        IF NOT ok THEN EXIT FOR
+    NEXT
+    Ply.Y = saveY
+    ComputeShipLayout
+    BotHullClear% = ok
+END FUNCTION
 
 'Draws the current non-play screen without handling input (for menu screenshots)
 SUB RunFrameRenderOnly

@@ -181,4 +181,5 @@ DATA 44B,3W,226B,3W,37B,*
 '$INCLUDE: 'src/levels.bm'
 '$INCLUDE: 'src/config.bm'
 '$INCLUDE: 'src/states.bm'
+'$INCLUDE: 'src/demo.bm'
 '$INCLUDE: 'src/test.bm'

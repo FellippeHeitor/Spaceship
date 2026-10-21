@@ -70,6 +70,12 @@ SUB PollInput
         END IF
     LOOP
 
+    'Any real key or button counts as activity (and ends the attract-mode demo)
+    IF KeyHitBuffer <> 0 OR AnyRealInput% THEN
+        Game.IdleT = UINow#
+        IF Game.Demo THEN Game.DemoAbort = -1
+    END IF
+
     'Autotest runs ignore the real keyboard (the hidden window can still get focus)
     IF Test.Bot THEN
         KeyHitBuffer = 0
@@ -81,7 +87,7 @@ SUB PollInput
         InHeld(a) = 0
     NEXT
 
-    IF Test.Bot THEN
+    IF Test.Bot OR Game.Demo THEN
         BotInput
     ELSE
         FOR a = 1 TO A_COUNT
@@ -110,6 +116,16 @@ SUB PollInput
         InPressed(a) = InHeld(a) AND NOT InPrev(a)
     NEXT
 END SUB
+
+'True while any bound key or any gamepad button is down
+FUNCTION AnyRealInput%
+    DIM a AS INTEGER
+    AnyRealInput% = 0
+    FOR a = 1 TO A_COUNT
+        IF KeyIsDown%(KeyBind1(a)) OR KeyIsDown%(KeyBind2(a)) THEN AnyRealInput% = -1: EXIT FUNCTION
+    NEXT
+    IF PadButtonDown% THEN AnyRealInput% = -1
+END FUNCTION
 
 'Menu helpers also accept the fixed keys (arrows, Enter, Space) whatever the bindings
 FUNCTION MenuUp%

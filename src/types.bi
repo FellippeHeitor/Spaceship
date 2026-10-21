@@ -167,6 +167,8 @@ CONST DREAD_CORE_Y = 5
 
 'Player
 CONST GRACE_TIME = 2
+CONST DEMO_IDLE = 15 'seconds of title-screen idle before the attract-mode demo
+CONST DEMO_LENGTH = 20 'seconds the demo plays before the title comes back
 CONST SHIP_COLOR = 14
 
 'Effects
@@ -449,6 +451,10 @@ TYPE GameType
     EntryPos AS INTEGER
     TopMsg AS STRING * 32
     TopMsgUntil AS DOUBLE
+    Demo AS _BYTE 'attract mode: the autopilot plays while the title screen is idle
+    DemoEnd AS DOUBLE
+    DemoAbort AS _BYTE
+    IdleT AS DOUBLE 'last time any key or button was touched
 END TYPE
 
 TYPE LevelType

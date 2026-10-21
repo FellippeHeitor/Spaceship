@@ -727,6 +727,7 @@ SUB PlayerCollisions
                                             HitEnemy idx, Ply.Size, -1
                                         END IF
                                     END IF
+                                    IF Test.Active THEN LogHit RTRIM$(Defs(d).Nm)
                                     HurtPlayer 0
                                 END IF
                             END IF
@@ -734,9 +735,11 @@ SUB PlayerCollisions
                     CASE MAP_EBULLET
                         IF Bul(idx).Active AND Ply.Shield = 0 AND Game.T - Ply.LastDamage >= GRACE_TIME THEN
                             IF Bul(idx).Kind <> BK_ZAP THEN Bul(idx).Active = 0
+                            IF Test.Active THEN LogHit "bullet"
                             HurtPlayer 1
                         END IF
                     CASE MAP_TERRAIN
+                        IF Test.Active AND Game.T - Ply.LastDamage >= GRACE_TIME THEN LogHit "wall"
                         HurtPlayer 0
                 END SELECT
                 IF Ply.Dying THEN EXIT SUB
