@@ -34,6 +34,7 @@ CONST ST_GAMEOVER = 9
 CONST ST_NAMEENTRY = 10
 CONST ST_ENDING = 11
 CONST ST_ZEN = 12
+CONST ST_ZENTALLY = 13
 CONST ST_QUIT = 99
 
 'Input actions
@@ -177,6 +178,8 @@ CONST MAX_ZEN_OBJS = 48
 CONST MAX_ZEN_SCENES = 80
 CONST MAX_ZEN_AREAS = 10
 CONST ZEN_CENTER = 25 'the ship's half-row while the view scrolls (screen center)
+CONST ZEN_PORTAL_EVERY = 20 'the portal drifts past about this often (seconds at cruising speed)
+CONST ZEN_HINT_AFTER = 90 'seconds of searching before the gauge shows the portal's height
 CONST SHIP_COLOR = 14
 
 'Effects
@@ -363,6 +366,7 @@ TYPE ZenObjType
     Y AS SINGLE 'screen row when the view is at CamY = 0 (see zen.bm)
     Depth AS SINGLE '0 = infinitely far, 1 = as close as the near stars
     Clr AS INTEGER
+    Seen AS _BYTE 'has been on screen (counted for the tally)
 END TYPE
 
 TYPE ZenSceneType
@@ -392,6 +396,16 @@ TYPE ZenStateType
     Area AS INTEGER
     AreaT AS DOUBLE 'when the current area's name started showing
     VMoveT AS DOUBLE 'last time the view scrolled
+    'The portal: it sits at one height on the map and drifts past every so often
+    PortalCam AS SINGLE 'view position where it shows at PortalRow
+    PortalRow AS SINGLE
+    PortalX AS SINGLE
+    PortalOn AS _BYTE 'currently drifting across
+    PortalNext AS SINGLE 'distance at which it comes by again
+    Found AS _BYTE 'touched: the ship is blasting off
+    FoundT AS SINGLE 'seconds adrift when it was found
+    Visited AS LONG 'one bit per area
+    Seen AS INTEGER 'scenery that came into view
     LastReal AS DOUBLE
     DCam AS SINGLE 'view and ship movement this frame, in rows
     DShip AS SINGLE

@@ -39,7 +39,7 @@ All of these can be changed under **Controls** on the title screen.
 - **Combos:** kills in quick succession raise your score multiplier, up to ×8.
 - **Enemies hold their fire until you attack first.** That rule from the original game still applies on Easy and Normal; on Hard they shoot on sight.
 
-**Zen mode** (on the title menu) has no enemies, no damage and no score. You drift through a deep starfield to slow ambient music while planets, comets and stations float by. The map is many screens tall: up and down scroll the view (the ship stays centered until the map runs out) into new areas, from deep space down to the hive, each with its own scenery. Right speeds up, left slows down, and Esc returns to the menu.
+**Zen mode** (on the title menu) has no enemies, no damage and no score. You drift through a deep starfield to slow ambient music while planets, comets and stations float by. The map is many screens tall: up and down scroll the view (the ship stays centered until the map runs out) into new areas, from deep space down to the hive, each with its own scenery. Right speeds up, left slows down, and Esc returns to the menu. Somewhere out there is a **portal** that drifts by every so often at its own height. A pulsing arrow at the screen edge means it's passing just above or below you, and after a while the altitude gauge marks its height. Touch it to engage overdrive, blast off and see your tally.
 
 Leave the title screen alone for 15 seconds and the autopilot plays a demo of a chapter from a sector you have already reached. Press any key to get back to the menu. Demos never save scores or progress.
 
@@ -89,7 +89,7 @@ AT 50 POOL 5 ROCK_L:3 SAUCER:1 FIGHTER:1
 
 Goals can be `KILLS`, `SURVIVE`, `DISTANCE`, `COLLECT` or `BOSS`. Other settings include `TERRAIN`, `FOG`, `STORM`, `BACKDROP` and `LOOP`. The full list is in the comments at the top of `src/levels.bm`.
 
-**Zen map** (`data/zen.txt`) is a stack of `AREA <from> <to> <name>` blocks, each followed by `SCENE <gap> <sprite> <depth> <color> <row>` lines that loop while you fly. From and to are view positions in rows (a screen is 24, negative is up). Depth runs from 0 (far away, crawls past) to 1 (close, rushes by).
+**Zen map** (`data/zen.txt`) is a stack of `AREA <from> <to> <name>` blocks, each followed by `SCENE <gap> <sprite> <depth> <color> <row>` lines that loop while you fly. From and to are view positions in rows (a screen is 24, negative is up). Depth runs from 0 (far away, crawls past) to 1 (close, rushes by). The portal is placed at random in any area except the one you start in.
 
 ## Command-line options and autotest
 

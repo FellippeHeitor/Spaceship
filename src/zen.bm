@@ -7,6 +7,10 @@
 'left slows down. Stars sit on three depth layers and scenery has its own depth, so
 'everything slides at its own pace (parallax).
 '
+'The goal is to find the portal, hidden at some height in one of the other areas. It
+'drifts past every so often; touching it engages overdrive, the ship blasts off to the
+'right like after a won chapter, and a tally closes the session.
+'
 'Scenery positions: an object's Y is where it appears on screen when the view is at
 'CamY = 0. With the view at CamY it shows at Y - CamY * depth, so far things barely
 'move as you climb and near things slide past quickly.
@@ -96,6 +100,13 @@ SUB StartZen
     Zen.Area = ZenAreaAt%(Zen.CamY)
     Zen.AreaT = -100
     Zen.VMoveT = -100
+    Zen.Visited = 0
+    IF Zen.Area > 0 THEN Zen.Visited = 2 ^ (Zen.Area - 1)
+    Zen.Seen = 0
+    FOR i = 1 TO MAX_ZEN_OBJS
+        ZenObjs(i).Seen = 0
+    NEXT
+    PlacePortal
     Zen.LastReal = RealNow#
     'The ship glides in from the left edge
     Ply.X = 1
@@ -108,7 +119,10 @@ SUB StartZen
     Ply.Recharge = 0
     Ply.ExitPhase = 3 'draws the engine flame
     Ply.ExitV = 0
+    'Game.T restarts here, so any timer measured against it must be reset too
+    '(a flash left over from the last portal would otherwise turn the sky white)
     Game.T = 0
+    Game.FlashUntil = 0
     Ply.LastDamage = -100
     Ply.LastGrow = -100
     Ply.SmokeT = -100
@@ -162,13 +176,19 @@ SUB ZenFrame
     age = UINow# - Game.StateT
 
     UpdateZenShip dt, age
+    IF Game.State <> ST_ZEN THEN EXIT SUB
     UpdateZenWorld dt
+    UpdateFX dt
     'Flying into a new area shows its name
     a = ZenAreaAt%(Zen.CamY)
     IF a <> Zen.Area THEN
         Zen.Area = a
-        IF a > 0 THEN Zen.AreaT = Game.T
+        IF a > 0 THEN
+            Zen.AreaT = Game.T
+            Zen.Visited = Zen.Visited OR 2 ^ (a - 1)
+        END IF
     END IF
+    CheckPortalTouch
     RenderZen age
 END SUB
 
@@ -183,6 +203,15 @@ END FUNCTION
 
 SUB UpdateZenShip (dt AS SINGLE, age AS DOUBLE)
     DIM sp AS SINGLE, target AS SINGLE, prevY AS SINGLE, camBefore AS SINGLE
+    IF Zen.Found THEN
+        'Overdrive: the same blast-off as a won chapter, stars streaking past
+        UpdateExitSequence dt
+        Zen.Speed = Zen.Speed + (7 - Zen.Speed) * Clamp!(dt * 1.5, 0, 1)
+        Zen.DCam = 0
+        Zen.DShip = 0
+        IF Ply.X > 100 THEN EnterZenTally
+        EXIT SUB
+    END IF
     camBefore = Zen.CamY
     prevY = Ply.Y
     IF age < 1.2 THEN
@@ -263,6 +292,18 @@ SUB UpdateZenWorld (dt AS SINGLE)
             IF ZenObjs(i).X + Sprites(ZenObjs(i).Sprite).W < 0 THEN ZenObjs(i).Active = 0
         END IF
     NEXT
+    'The portal drifts across at its height every so often (slower than the scenery
+    'near it, so it can be caught; slowing down helps)
+    IF Zen.PortalOn THEN
+        Zen.PortalX = Zen.PortalX - 7 * Zen.Speed * dt
+        IF Zen.PortalX < -14 THEN
+            Zen.PortalOn = 0
+            Zen.PortalNext = Zen.Dist + ZEN_PORTAL_EVERY * (.8 + RND * .4)
+        END IF
+    ELSEIF Zen.Dist >= Zen.PortalNext AND Zen.PortalNext > 0 AND NOT Zen.Found THEN
+        Zen.PortalOn = -1
+        Zen.PortalX = 81
+    END IF
     'Every area runs its own scenery loop, on screen or not
     Zen.Dist = Zen.Dist + Zen.Speed * dt
     FOR a = 1 TO ZenAreaCount
@@ -316,14 +357,25 @@ SUB RenderZen (age AS DOUBLE)
     DIM t AS SINGLE
     CLS , 0
     COLOR , 0
-    _PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
-    'Back to front: far scenery, far stars, near scenery, near stars, ship
+    IF Game.T < Game.FlashUntil THEN
+        _PALETTECOLOR 0, Game.FlashClr
+    ELSE
+        _PALETTECOLOR 0, _RGBA32(0, 0, 0, 0)
+    END IF
+    'Back to front: far scenery, far stars, near scenery, near stars, portal, ship
     DrawZenObjs 0, .3
     DrawZenStars 1
     DrawZenStars 2
     DrawZenObjs .3, 2
     DrawZenStars 3
+    DrawZenPortal
     DrawPlayer
+    DrawFX
+
+    IF Zen.Found THEN
+        IF Game.T - Zen.FoundT < 2.5 AND INT(Game.T * 6) MOD 2 = 0 THEN Banner 11, " O V E R D R I V E ! ", 15, 5
+        EXIT SUB
+    END IF
 
     'Title, then the name of each new area as you fly into it
     IF age < 6 THEN
@@ -373,9 +425,150 @@ SUB DrawZenGauge
     FOR r = 4 TO 22
         _PRINTSTRING (80, r), CHR$(179)
     NEXT
+    'After a long search the portal's height shows on the gauge too
+    IF Game.T > ZEN_HINT_AFTER THEN
+        mark = 4 + INT((PortalViewY! - Zen.MapTop) / span * 18 + .5)
+        IF INT(Game.T * 4) MOD 2 THEN COLOR 13 ELSE COLOR 5
+        _PRINTSTRING (80, mark), CHR$(4)
+    END IF
     mark = 4 + INT((Zen.CamY - Zen.MapTop) / span * 18 + .5)
     COLOR 15
     _PRINTSTRING (80, mark), CHR$(254)
+END SUB
+
+'--- The portal -------------------------------------------------------------------
+
+'Hides the portal somewhere in an area other than the starting one
+SUB PlacePortal
+    DIM a AS INTEGER, tries AS INTEGER, startA AS INTEGER
+    startA = ZenAreaAt%(0)
+    a = startA
+    IF ZenAreaCount > 1 THEN
+        DO
+            a = INT(RND * ZenAreaCount) + 1
+            tries = tries + 1
+        LOOP WHILE a = startA AND tries < 50
+    END IF
+    IF a > 0 THEN
+        Zen.PortalCam = ZenAreas(a).CamFrom + RND * (ZenAreas(a).CamTo - ZenAreas(a).CamFrom)
+    ELSE
+        Zen.PortalCam = 0
+    END IF
+    Zen.PortalRow = 6 + RND * 12
+    Zen.PortalOn = 0
+    Zen.PortalNext = Zen.Dist + 8 + RND * 6
+    Zen.Found = 0
+    IF Test.Active THEN LogMsg "Zen portal in area" + STR$(a) + " at view" + STR$(INT(Zen.PortalCam))
+END SUB
+
+'View position that puts the portal in the middle of the screen
+FUNCTION PortalViewY!
+    PortalViewY! = Zen.PortalCam + Zen.PortalRow + 3 - 12.5
+END FUNCTION
+
+FUNCTION PortalScreenY%
+    PortalScreenY% = INT(Zen.PortalRow + Zen.PortalCam - Zen.CamY)
+END FUNCTION
+
+SUB DrawZenPortal
+    DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, clr AS INTEGER
+    IF NOT Zen.PortalOn OR Zen.Found THEN EXIT SUB
+    id = SpriteID%("ZEN_PORTAL")
+    IF id = 0 THEN EXIT SUB
+    x = INT(Zen.PortalX)
+    y = PortalScreenY%
+    SELECT CASE INT(Game.T * 3) MOD 3
+        CASE 0: clr = 13
+        CASE 1: clr = 11
+        CASE ELSE: clr = 9
+    END SELECT
+    DrawSprite id, INT(Game.T * 8) MOD 4 + 1, x, y, clr, 0
+    'Just out of sight above or below: a pulsing arrow at the screen edge
+    IF x >= -6 AND x <= 74 THEN
+        IF INT(Game.T * 4) MOD 2 THEN COLOR 13 ELSE COLOR 5
+        IF y + 6 <= PLAY_TOP AND y > -30 THEN _PRINTSTRING (x + 6, PLAY_TOP), CHR$(30)
+        IF y > 25 AND y < 55 THEN _PRINTSTRING (x + 6, 25), CHR$(31)
+    END IF
+END SUB
+
+SUB CheckPortalTouch
+    DIM i AS INTEGER, x AS INTEGER, y AS INTEGER
+    IF NOT Zen.PortalOn OR Zen.Found THEN EXIT SUB
+    x = INT(Zen.PortalX)
+    y = PortalScreenY%
+    ComputeShipLayout
+    FOR i = 1 TO ShipN
+        IF ShipCX(i) >= x + 1 AND ShipCX(i) <= x + 10 AND ShipCY(i) >= y + 1 AND ShipCY(i) <= y + 4 THEN
+            EngagePortal
+            EXIT SUB
+        END IF
+    NEXT
+END SUB
+
+SUB EngagePortal
+    DIM k AS INTEGER, cx AS SINGLE, cy AS SINGLE, a AS SINGLE
+    cx = Zen.PortalX + 6
+    cy = PortalScreenY% + 3
+    Zen.Found = -1
+    Zen.FoundT = Game.T
+    Zen.PortalOn = 0
+    Ply.ExitPhase = 3
+    Ply.ExitT = Game.T
+    Ply.ExitV = 0
+    SetFlash 255, 255, 255, .2
+    PlaySfx SndWeaponUp
+    PlaySfx SndFullRecharge
+    'The portal bursts into sparks
+    FOR k = 1 TO 40
+        a = RND * 6.2832
+        AddParticle cx, cy, COS(a) * RndRange!(6, 22), SIN(a) * RndRange!(3, 10), RndRange!(.4, .9)
+    NEXT
+    IF Test.Active THEN LogMsg "Zen portal found after" + STR$(INT(Game.T)) + "s"
+END SUB
+
+'--- Tally ---------------------------------------------------------------------------
+
+SUB EnterZenTally
+    Ply.ExitPhase = 0
+    Game.FlashUntil = 0
+    GoState ST_ZENTALLY
+END SUB
+
+SUB ZenTallyFrame
+    DIM age AS DOUBLE, n AS INTEGER, row AS INTEGER, i AS INTEGER, areas AS INTEGER, secs AS LONG
+    STATIC lastN AS INTEGER
+    MenuBackground
+    age = UINow# - Game.StateT
+    n = INT(age / .45)
+    IF n <> lastN AND n <= 5 THEN PlaySfx SndBeep
+    lastN = n
+    Banner 5, " PORTAL FOUND ", 15, 5
+    COLOR 7
+    CenterText 7, "ZEN MODE"
+    FOR i = 1 TO ZenAreaCount
+        IF Zen.Visited AND 2 ^ (i - 1) THEN areas = areas + 1
+    NEXT
+    secs = INT(Zen.FoundT)
+    row = 10
+    IF n >= 1 THEN TallyLine row, "TIME ADRIFT", NumStr$(secs \ 60) + ":" + RIGHT$("0" + NumStr$(secs MOD 60), 2)
+    IF n >= 2 THEN TallyLine row + 2, "AREAS EXPLORED", NumStr$(areas) + " OF " + NumStr$(ZenAreaCount)
+    IF n >= 3 THEN TallyLine row + 4, "SIGHTS SEEN", NumStr$(Zen.Seen)
+    IF n >= 4 THEN TallyLine row + 6, "DISTANCE FLOWN", NumStr$(INT(Zen.Dist * 3)) + " LY"
+    IF n >= 5 THEN
+        IF INT(UINow# * 2) MOD 2 THEN COLOR 15 ELSE COLOR 8
+        CenterText 23, "PRESS FIRE TO CONTINUE"
+    END IF
+    IF MenuBack% THEN
+        lastN = -1
+        GoTitle
+    ELSEIF MenuOK% OR age > 30 THEN
+        IF n < 5 AND age <= 30 THEN
+            Game.StateT = UINow# - 5 * .45
+        ELSE
+            lastN = -1
+            GoTitle
+        END IF
+    END IF
 END SUB
 
 SUB DrawZenStars (layer AS INTEGER)
@@ -403,6 +596,7 @@ SUB DrawZenObjs (d0 AS SINGLE, d1 AS SINGLE)
                 IF sy <= 25 AND sy + Sprites(ZenObjs(i).Sprite).H > PLAY_TOP THEN
                     n = n + 1
                     order(n) = i
+                    IF NOT ZenObjs(i).Seen THEN ZenObjs(i).Seen = -1: Zen.Seen = Zen.Seen + 1
                 END IF
             END IF
         END IF

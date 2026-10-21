@@ -19,6 +19,7 @@ SUB RunFrame
         CASE ST_NAMEENTRY: NameEntryFrame
         CASE ST_ENDING: EndingFrame
         CASE ST_ZEN: ZenFrame
+        CASE ST_ZENTALLY: ZenTallyFrame
     END SELECT
     IF Test.Active THEN TestHooks
 END SUB
@@ -213,7 +214,7 @@ SUB MenuBackground
     Ply.Dying = 0
     Ply.Recharge = 0
     'The tally screen keeps the warp-speed stars from the blast-off
-    Ply.MovingRight = (Game.State = ST_TALLY)
+    Ply.MovingRight = (Game.State = ST_TALLY OR Game.State = ST_ZENTALLY)
     IF Ply.MovingRight THEN
         Game.StarInterval = Game.StarInterval - .4 * dt
         IF Game.StarInterval < 0 THEN Game.StarInterval = 0
