@@ -1,0 +1,25 @@
+; Spaceship zen mode scenery, played in order and looped.
+;
+; SCENE <gap> <sprite> <depth> <color> <row>
+;
+;   gap     seconds (at cruising speed) after the previous scene appears
+;   sprite  any sprite from sprites.txt
+;   depth   0 to 1: how close it is. Far things (0.1) crawl past and barely move when
+;           you climb or dive; near things (0.8) rush by and slide a lot.
+;   color   0-15, used wherever the sprite has no color of its own
+;   row     where it first appears on screen (2 top, 25 bottom)
+
+SCENE 3  BG_NEBULA   .12  13 4
+SCENE 8  ZEN_SAT     .55  7  18
+SCENE 7  BG_PLANET   .22  3  13
+SCENE 11 ZEN_COMET   .85  11 6
+SCENE 8  BG_ROCKS    .45  6  20
+SCENE 4  BG_ROCKS    .5   8  7
+SCENE 9  ZEN_RINGED  .18  6  9
+SCENE 13 ZEN_STATION .35  7  4
+SCENE 10 ZEN_GALAXY  .08  13 14
+SCENE 10 BG_ARMADA   .3   8  20
+SCENE 8  ZEN_MOON    .28  7  5
+SCENE 9  ZEN_COMET   .9   9  18
+SCENE 6  BG_NEBULA   .1   9  15
+SCENE 10 ZEN_SAT     .6   7  9

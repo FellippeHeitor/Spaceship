@@ -23,11 +23,12 @@ SUB LoadAudio
     SongName(SONG_FINAL) = "final.mid"
     SongName(SONG_ENDING) = "ending.mid"
     SongName(SONG_BONUS) = "bonus.mid"
-    FOR i = 1 TO SONG_BONUS
+    SongName(SONG_ZEN) = "zen.mid"
+    FOR i = 1 TO SONG_ZEN
         Songs(i) = LoadSnd&(SongName(i))
     NEXT
     'Fallbacks if any generated track is missing
-    FOR i = SONG_SECTOR2 TO SONG_BONUS
+    FOR i = SONG_SECTOR2 TO SONG_ZEN
         IF Songs(i) = 0 THEN Songs(i) = Songs(SONG_SECTOR1)
     NEXT
     IF Songs(SONG_FINAL) = Songs(SONG_SECTOR1) THEN Songs(SONG_FINAL) = Songs(SONG_BOSS)
@@ -124,6 +125,7 @@ FUNCTION SongForName% (n AS STRING)
         CASE "FINAL": SongForName% = SONG_FINAL
         CASE "ENDING": SongForName% = SONG_ENDING
         CASE "BONUS": SongForName% = SONG_BONUS
+        CASE "ZEN": SongForName% = SONG_ZEN
         CASE ELSE: SongForName% = SONG_SECTOR1
     END SELECT
 END FUNCTION

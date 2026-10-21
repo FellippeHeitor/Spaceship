@@ -26,12 +26,13 @@ SUB UpdateStars (dt AS SINGLE)
     DIM i AS INTEGER, iv AS SINGLE, dy AS SINGLE, h AS INTEGER
     STATIC lastShipY AS SINGLE
 
-    'Vertical parallax: when the ship climbs or dives, the starfield slides the other way.
+    'Vertical parallax (off unless -parallax is given): when the ship climbs or dives,
+    'the starfield slides the other way.
     'Nearer (faster) stars slide more than distant ones; the backdrop barely moves.
     dy = (Ply.Y - lastShipY) / 2
     lastShipY = Ply.Y
     IF ABS(dy) > 1 THEN dy = 0
-    IF dy <> 0 AND NOT Ply.Dying THEN
+    IF dy <> 0 AND NOT Ply.Dying AND Game.Parallax THEN
         FOR i = 1 TO MAX_STARS
             Stars(i).Y = Stars(i).Y - dy * .15 * Stars(i).Speed
             IF Stars(i).Y < 2 THEN Stars(i).Y = Stars(i).Y + 24

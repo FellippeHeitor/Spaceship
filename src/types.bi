@@ -33,6 +33,7 @@ CONST ST_TALLY = 8
 CONST ST_GAMEOVER = 9
 CONST ST_NAMEENTRY = 10
 CONST ST_ENDING = 11
+CONST ST_ZEN = 12
 CONST ST_QUIT = 99
 
 'Input actions
@@ -169,6 +170,13 @@ CONST DREAD_CORE_Y = 5
 CONST GRACE_TIME = 2
 CONST DEMO_IDLE = 15 'seconds of title-screen idle before the attract-mode demo
 CONST DEMO_LENGTH = 20 'seconds the demo plays before the title comes back
+
+'Zen mode
+CONST MAX_ZEN_STARS = 70
+CONST MAX_ZEN_OBJS = 12
+CONST MAX_ZEN_SCENES = 40
+CONST ZEN_BAND_TOP = 14 'the ship moves freely between these half-rows; past them the view scrolls
+CONST ZEN_BAND_BOT = 36
 CONST SHIP_COLOR = 14
 
 'Effects
@@ -187,6 +195,7 @@ CONST SONG_SECTOR5 = 7
 CONST SONG_FINAL = 8
 CONST SONG_ENDING = 9
 CONST SONG_BONUS = 10
+CONST SONG_ZEN = 11
 
 TYPE SpriteType
     Nm AS STRING * 16
@@ -339,6 +348,42 @@ TYPE StarType
     Ch AS STRING * 1
 END TYPE
 
+TYPE ZenStarType
+    X AS SINGLE
+    Y AS SINGLE
+    Layer AS INTEGER '1 far, 2 middle, 3 near
+    Clr AS INTEGER
+    Ch AS STRING * 1
+END TYPE
+
+TYPE ZenObjType
+    Active AS _BYTE
+    Sprite AS INTEGER
+    X AS SINGLE
+    Y AS SINGLE
+    Depth AS SINGLE '0 = infinitely far, 1 = as close as the near stars
+    Clr AS INTEGER
+END TYPE
+
+TYPE ZenSceneType
+    Gap AS SINGLE 'seconds (at cruising speed) after the previous scene
+    Sprite AS INTEGER
+    Depth AS SINGLE
+    Clr AS INTEGER
+    Row AS SINGLE
+END TYPE
+
+TYPE ZenStateType
+    CamY AS SINGLE 'vertical view offset in rows
+    Speed AS SINGLE 'cruising speed multiplier (1 = normal)
+    Dist AS SINGLE
+    NextAt AS SINGLE
+    Scene AS INTEGER
+    LastReal AS DOUBLE
+    DCam AS SINGLE 'view and ship movement this frame, in rows
+    DShip AS SINGLE
+END TYPE
+
 TYPE BackType
     Active AS _BYTE
     Sprite AS INTEGER
@@ -455,6 +500,7 @@ TYPE GameType
     DemoEnd AS DOUBLE
     DemoAbort AS _BYTE
     IdleT AS DOUBLE 'last time any key or button was touched
+    Parallax AS _BYTE 'stars slide the other way when the ship climbs or dives (-parallax)
 END TYPE
 
 TYPE LevelType
@@ -572,6 +618,11 @@ DIM SHARED Pk(1 TO MAX_PK) AS PickupType
 DIM SHARED FX(1 TO MAX_FX) AS FXType
 DIM SHARED Stars(1 TO MAX_STARS) AS StarType
 DIM SHARED Back(1 TO MAX_BACK) AS BackType
+DIM SHARED ZenStars(1 TO MAX_ZEN_STARS) AS ZenStarType
+DIM SHARED ZenObjs(1 TO MAX_ZEN_OBJS) AS ZenObjType
+DIM SHARED ZenScenes(1 TO MAX_ZEN_SCENES) AS ZenSceneType
+DIM SHARED ZenSceneCount AS INTEGER
+DIM SHARED Zen AS ZenStateType
 DIM SHARED Ev(1 TO MAX_EVENTS) AS EventType
 
 DIM SHARED ScreenMap(1 TO 80, 1 TO 25) AS INTEGER

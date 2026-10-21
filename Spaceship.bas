@@ -78,6 +78,7 @@ InitInput
 LoadSprites DataPath$("sprites.txt")
 LoadDefs DataPath$("enemies.txt")
 LoadCampaign DataPath$("campaign.txt")
+LoadZenScenes DataPath$("zen.txt")
 LoadScores
 CreateImages
 LoadAudio
@@ -182,4 +183,5 @@ DATA 44B,3W,226B,3W,37B,*
 '$INCLUDE: 'src/config.bm'
 '$INCLUDE: 'src/states.bm'
 '$INCLUDE: 'src/demo.bm'
+'$INCLUDE: 'src/zen.bm'
 '$INCLUDE: 'src/test.bm'

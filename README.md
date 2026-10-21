@@ -39,6 +39,8 @@ All of these can be changed under **Controls** on the title screen.
 - **Combos:** kills in quick succession raise your score multiplier, up to ×8.
 - **Enemies hold their fire until you attack first.** That rule from the original game still applies on Easy and Normal; on Hard they shoot on sight.
 
+**Zen mode** (on the title menu) has no enemies, no damage and no score. You drift through a deep starfield to slow ambient music while planets, comets and stations float by. Up and down climb and dive as far as you like (the whole view scrolls once you near the edge), right speeds up, left slows down, and Esc returns to the menu.
+
 Leave the title screen alone for 15 seconds and the autopilot plays a demo of a chapter from a sector you have already reached. Press any key to get back to the menu. Demos never save scores or progress.
 
 ## Project layout
@@ -49,12 +51,14 @@ src/types.bi         constants, types and shared state
 src/*.bm             engine modules: player, enemies, bosses, bullets, pickups,
                      levels, world (stars/terrain), render, fx, input, audio,
                      config, states (menus and screens), demo (attract mode),
-                     test (autopilot)
+                     zen (zen mode), test (autopilot)
 data/sprites.txt     all sprites, as plain ASCII art
 data/enemies.txt     enemy definitions
 data/campaign.txt    sectors, briefings and chapter order
 data/levels/*.lvl    one script per chapter
+data/zen.txt         the scenery loop for zen mode
 Audio/               music and sound effects
+tools/               make_zen_music.py writes Audio/zen.mid
 ROADMAP.md           the improvement plan and its status
 ```
 
@@ -85,6 +89,8 @@ AT 50 POOL 5 ROCK_L:3 SAUCER:1 FIGHTER:1
 
 Goals can be `KILLS`, `SURVIVE`, `DISTANCE`, `COLLECT` or `BOSS`. Other settings include `TERRAIN`, `FOG`, `STORM`, `BACKDROP` and `LOOP`. The full list is in the comments at the top of `src/levels.bm`.
 
+**Zen scenery** (`data/zen.txt`) is a list of `SCENE <gap> <sprite> <depth> <color> <row>` lines that play in order and loop. Depth runs from 0 (far away, crawls past) to 1 (close, rushes by).
+
 ## Command-line options and autotest
 
 ```
@@ -92,6 +98,7 @@ Spaceship -chapter 9            start straight at a chapter (bonus stages count 
 Spaceship -god                  invincible ship and cheat keys: L ends the chapter,
                                 W weapon up, B refills specials, F freezes
 Spaceship -difficulty 3         1 easy, 2 normal, 3 hard
+Spaceship -parallax             the starfield slides up and down as the ship climbs and dives
 Spaceship -autotest 600 -fast -shots shots/ -every 10
                                 the game plays itself for 600 seconds of game time,
                                 saves screenshots and writes autotest.log

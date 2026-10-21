@@ -18,6 +18,7 @@ SUB RunFrame
         CASE ST_GAMEOVER: GameOverFrame
         CASE ST_NAMEENTRY: NameEntryFrame
         CASE ST_ENDING: EndingFrame
+        CASE ST_ZEN: ZenFrame
     END SELECT
     IF Test.Active THEN TestHooks
 END SUB
@@ -253,7 +254,7 @@ FUNCTION MenuNav% (count AS INTEGER)
 END FUNCTION
 
 SUB TitleFrame
-    DIM items(1 TO 6) AS STRING, i AS INTEGER, n AS INTEGER, fade AS INTEGER
+    DIM items(1 TO 7) AS STRING, i AS INTEGER, n AS INTEGER, fade AS INTEGER
     MenuBackground
     fade = INT((UINow# - Game.StateT) * 12) + 1
     DrawLogo 80, fade
@@ -261,11 +262,12 @@ SUB TitleFrame
     CenterText 10, "A  T E X T - M O D E   S P A C E   S H O O T E R"
     items(1) = "START GAME"
     items(2) = "SECTOR SELECT"
-    items(3) = "OPTIONS"
-    items(4) = "CONTROLS"
-    items(5) = "HIGH SCORES"
-    items(6) = "QUIT"
-    n = 6
+    items(3) = "ZEN MODE"
+    items(4) = "OPTIONS"
+    items(5) = "CONTROLS"
+    items(6) = "HIGH SCORES"
+    items(7) = "QUIT"
+    n = 7
     FOR i = 1 TO n
         DrawMenuItem 12 + i, items(i), (i = Game.MenuSel), (i <> 2 OR Game.Unlocked > 1)
     NEXT
@@ -285,10 +287,11 @@ SUB TitleFrame
             CASE 1: NewGame 1
             CASE 2
                 IF Game.Unlocked > 1 THEN GoState ST_SECTORSEL
-            CASE 3: GoState ST_OPTIONS
-            CASE 4: GoState ST_CONTROLS
-            CASE 5: Game.NewHigh = 0: GoState ST_SCORES
-            CASE 6: Game.State = ST_QUIT
+            CASE 3: StartZen
+            CASE 4: GoState ST_OPTIONS
+            CASE 5: GoState ST_CONTROLS
+            CASE 6: Game.NewHigh = 0: GoState ST_SCORES
+            CASE 7: Game.State = ST_QUIT
         END SELECT
     ELSEIF MenuBack% THEN
         Game.State = ST_QUIT
