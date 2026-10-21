@@ -323,6 +323,25 @@ SUB TopMessage (s AS STRING)
     Game.TopMsgUntil = Game.T + 1
 END SUB
 
+FUNCTION WeaponName$ (lv AS INTEGER)
+    SELECT CASE lv
+        CASE 1: WeaponName$ = "SINGLE LASER"
+        CASE 2: WeaponName$ = "TWIN LASERS"
+        CASE 3: WeaponName$ = "SPREAD SHOT"
+        CASE ELSE: WeaponName$ = "PIERCING BEAM"
+    END SELECT
+END FUNCTION
+
+'Shows the new gun level in the top bar for two seconds
+SUB AnnounceWeapon (prefix AS STRING)
+    TopMessage " " + prefix + NumStr$(Ply.Weapon) + ": " + WeaponName$(Ply.Weapon) + " "
+    Game.TopMsgUntil = Game.T + 2
+    IF Test.Active THEN
+        LogMsg "Gun level" + STR$(Ply.Weapon)
+        Test.NextShot = Game.T + .3
+    END IF
+END SUB
+
 FUNCTION FreeBullet%
     DIM i AS INTEGER
     FreeBullet% = 0
@@ -514,7 +533,7 @@ SUB HurtPlayer (kind AS INTEGER)
         SetFlash 28, 28, 28, .15
         SetShipSize 1
         Ply.Energy = Ply.Energy / 2
-        IF Ply.Weapon > 1 THEN Ply.Weapon = Ply.Weapon - 1
+        IF Ply.Weapon > 1 THEN Ply.Weapon = Ply.Weapon - 1: AnnounceWeapon "GUN DOWN "
         ShowMessage "UNIT DAMAGED!", 4, 1.5
         AddExplosion Ply.X - 1, ShipRow!, 0
     ELSE
@@ -646,7 +665,6 @@ SUB DrawPlayer
         _PUTIMAGE (sx, sy), ShieldImages(ShieldIdx), 0
     END IF
 
-    IF Game.T < Game.TopMsgUntil THEN Banner 1, RTRIM$(Game.TopMsg), 0, 7
 END SUB
 
 'Exhaust flame from the nozzle between the rear fins. It is half a row thick

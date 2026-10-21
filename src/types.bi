@@ -447,7 +447,7 @@ TYPE GameType
     NewHigh AS INTEGER
     EntryName AS STRING * 3
     EntryPos AS INTEGER
-    TopMsg AS STRING * 24
+    TopMsg AS STRING * 32
     TopMsgUntil AS DOUBLE
 END TYPE
 

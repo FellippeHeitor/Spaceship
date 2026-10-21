@@ -59,6 +59,7 @@ SUB TestHooks
         SaveShot "state" + NumStr$(Game.State)
         shotDue = 0
     END IF
+    IF Game.State = ST_PLAY THEN CheckPickupsClear
     IF Game.T >= Test.Limit THEN FinishTest "time limit"
     IF UINow# > Test.Limit * 4 + 60 THEN FinishTest "wall clock limit"
 END SUB
@@ -234,4 +235,28 @@ SUB RunFrameRenderOnly
         InPressed(a) = saved(a)
     NEXT
     KeyHitBuffer = k
+END SUB
+
+'Test check: no pickup cell may overlap terrain (it couldn't be collected)
+SUB CheckPickupsClear
+    DIM i AS INTEGER, c AS INTEGER, r AS INTEGER, w AS INTEGER, h AS INTEGER, yy AS INTEGER
+    STATIC reported AS LONG
+    FOR i = 1 TO MAX_PK
+        IF Pk(i).Active AND Pk(i).Sprite > 0 THEN
+            w = Sprites(Pk(i).Sprite).W
+            h = Sprites(Pk(i).Sprite).H
+            FOR c = INT(Pk(i).X) TO INT(Pk(i).X) + w - 1
+                IF c >= 1 AND c <= 80 THEN
+                    FOR r = 0 TO h - 1
+                        yy = INT(Pk(i).Y) + r
+                        IF yy <= 1 + TerTop(c) OR yy >= 26 - TerBot(c) THEN
+                            IF reported < 20 THEN LogMsg "PICKUP IN TERRAIN: kind" + STR$(Pk(i).Kind) + " at" + STR$(c) + "," + STR$(yy)
+                            reported = reported + 1
+                            EXIT SUB
+                        END IF
+                    NEXT
+                END IF
+            NEXT
+        END IF
+    NEXT
 END SUB

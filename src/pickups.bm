@@ -71,6 +71,7 @@ FUNCTION SpawnPickup% (kind AS INTEGER, x AS SINGLE, y AS SINGLE, scripted AS _B
                 CASE PK_CELL: Pk(i).Speed = 16: Pk(i).Clr = 10
                 CASE PK_STAR: Pk(i).Speed = 16: Pk(i).Clr = 14
             END SELECT
+            KeepPickupInGap i
             SpawnPickup% = i
             EXIT FUNCTION
         END IF
@@ -150,9 +151,37 @@ SUB UpdatePickups (dt AS SINGLE)
             w = 7
             IF Pk(i).Sprite THEN w = Sprites(Pk(i).Sprite).W
             IF Pk(i).X + w < 0 THEN Pk(i).Active = 0
+            KeepPickupInGap i
             IF Pk(i).Clr = -2 AND (Game.ColorTick MOD 2) = 0 THEN Pk(i).ColorStep = Pk(i).ColorStep MOD 17 + 1
         END IF
     NEXT
+END SUB
+
+'Keeps a pickup inside the open space between the terrain walls under it,
+'with a row of margin when there's room, so it can always be collected
+SUB KeepPickupInGap (i AS INTEGER)
+    DIM c AS INTEGER, w AS INTEGER, h AS INTEGER, top AS INTEGER, bot AS INTEGER, t AS INTEGER, b AS INTEGER
+    IF Pk(i).Sprite = 0 THEN EXIT SUB
+    w = Sprites(Pk(i).Sprite).W
+    h = Sprites(Pk(i).Sprite).H
+    top = 2
+    bot = 25
+    FOR c = INT(Pk(i).X) TO INT(Pk(i).X) + w - 1
+        IF c >= 1 AND c <= 81 THEN
+            t = TerrainTopRow%(c)
+            b = TerrainBotRow%(c)
+            IF t > top THEN top = t
+            IF b < bot THEN bot = b
+        END IF
+    NEXT
+    IF top = 2 AND bot = 25 THEN EXIT SUB
+    IF bot - top + 1 >= h + 2 THEN
+        top = top + 1
+        bot = bot - 1
+    END IF
+    IF Pk(i).Y < top THEN Pk(i).Y = top
+    IF Pk(i).Y + h - 1 > bot THEN Pk(i).Y = bot - h + 1
+    IF Pk(i).Y < top THEN Pk(i).Y = top
 END SUB
 
 FUNCTION PickupColor% (i AS INTEGER)
@@ -237,7 +266,7 @@ SUB CollectPickup (i AS INTEGER)
             IF Ply.Weapon < 4 THEN
                 Ply.Weapon = Ply.Weapon + 1
                 PlaySfx SndWeaponUp
-                AddFloatText Ply.X - 4, ShipRow! - 2, "WEAPON UP", 12
+                AnnounceWeapon "GUN "
             ELSE
                 AddScore 500, Ply.X, ShipRow!
                 PlaySfx SndPickup

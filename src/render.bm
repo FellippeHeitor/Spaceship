@@ -160,14 +160,14 @@ SUB DrawHUD
 
     'Weapon level
     COLOR 7
-    PutText 51, 1, "W"
+    PutText 49, 1, "GUN"
     FOR i = 1 TO 4
         IF i <= Ply.Weapon THEN COLOR 12 ELSE COLOR 8
-        PutText 51 + i, 1, CHR$(254)
+        PutText 52 + i, 1, CHR$(254)
     NEXT
 
     'Specials: F(reeze) B(omb) M(issiles) O(verdrive)
-    x = 57
+    x = 58
     FOR i = 1 TO SP_COUNT
         s = LEFT$(SpecialName(i), 1) + NumStr$(SpecialCount(i))
         IF i = Ply.CurSpecial THEN
@@ -211,6 +211,8 @@ SUB DrawHUD
         Banner 1, s, 15, 4
     END IF
     IF Game.T - Ply.ShieldT < 1 AND Ply.Shield THEN Banner 1, " SHIELD ENGAGED ", 0, 7
+    'Top-bar messages (gun level, shield, overdrive...) go over the HUD
+    IF Game.T < Game.TopMsgUntil THEN Banner 1, RTRIM$(Game.TopMsg), 0, 7
 
     'Bottom bar: chapter progress or boss health
     COLOR , 0

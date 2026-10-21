@@ -34,7 +34,7 @@ All of these can be changed under **Controls** on the title screen.
 
 - **Watch your energy.** Every shot drains your ship's energy cell. It refills once you stop firing for a second, and if it runs dry your guns go quiet until it does. A green energy pickup refills it straight away.
 - **Your ship takes two hits.** The first hit shrinks it to a smaller, damaged ship. The next hit destroys it. A green **heart** repairs the ship; if it's already whole, the heart gives an extra life.
-- **Weapons (W pickup) go up to level 4:** single laser, twin lasers, twin plus diagonal shots, then an added piercing beam. Taking damage drops you one level.
+- **Weapons (W pickup) go up to level 4:** single laser, twin lasers, spread shot (twin plus diagonals), then piercing beam. The GUN gauge on the HUD shows your level. Taking damage drops you one level.
 - **Specials:** Time **F**reeze, smart **B**omb, homing **M**issiles and **O**verdrive (fast fire at no energy cost). They appear as the campaign progresses, and the HUD shows how many of each you carry.
 - **Combos:** kills in quick succession raise your score multiplier, up to ×8.
 - **Enemies hold their fire until you attack first.** That rule from the original game still applies on Easy and Normal; on Hard they shoot on sight.
