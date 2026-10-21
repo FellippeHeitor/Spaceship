@@ -32,7 +32,7 @@ SUB UpdateStars (dt AS SINGLE)
         Game.StarInterval = Game.StarInterval + .15 * dt
         IF Game.StarInterval > Game.StarBase THEN Game.StarInterval = Game.StarBase
     END IF
-    IF Ply.Freeze OR Ply.Dying OR (Ply.Energy <= 0 AND NOT Ply.Recharge) THEN EXIT SUB
+    IF Ply.Freeze OR Ply.Dying THEN EXIT SUB
     iv = Game.StarInterval
     IF iv < 1 / 30 THEN iv = 1 / 30
     FOR i = 1 TO MAX_STARS

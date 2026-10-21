@@ -656,8 +656,8 @@ SUB TryEnemyFire (i AS INTEGER)
     IF Defs(d).Fire = FR_ZAP THEN
         IF ABS(Ply.X - 2 - (En(i).X + En(i).W / 2)) > 5 THEN EXIT SUB
     END IF
-    'Don't shoot from behind the player
-    IF En(i).X + En(i).W / 2 < Ply.X - 6 AND Defs(d).Fire <> FR_RING8 AND Defs(d).Fire <> FR_ZAP THEN EXIT SUB
+    'Only shoot at a ship that is in front (to the left) of the shooter
+    IF En(i).X + En(i).W / 2 < Ply.X + 2 AND Defs(d).Fire <> FR_RING8 AND Defs(d).Fire <> FR_ZAP THEN EXIT SUB
     FireEnemy i
     Game.LastEnemyShot = Game.ET
     SELECT CASE Game.Difficulty

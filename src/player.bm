@@ -147,7 +147,7 @@ SUB RegisterKillCombo
 END SUB
 
 SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
-    DIM moved AS _BYTE, sp AS SINGLE, i AS INTEGER, prevYi AS INTEGER
+    DIM sp AS SINGLE, i AS INTEGER, prevYi AS INTEGER
 
     Ply.FiredThisTick = 0
     Ply.MoveDY = 0
@@ -175,19 +175,16 @@ SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
 
     IF Game.T - Ply.ComboT > 1.5 THEN Ply.Combo = 0
 
-    'Movement (costs a tiny bit of energy, like the original)
+    'Movement is free; energy is only spent by the guns
     prevYi = INT(Ply.Y)
     sp = 30 * dt
     Ply.MovingRight = 0
-    IF Ply.Energy > 0 THEN
-        IF InHeld(A_UP) AND Ply.Y > UpperLimit% THEN Ply.Y = Ply.Y - sp: moved = -1
-        IF InHeld(A_DOWN) AND Ply.Y < LowerLimit% THEN Ply.Y = Ply.Y + sp: moved = -1
-        IF InHeld(A_LEFT) AND Ply.X > LeftLimit% THEN Ply.X = Ply.X - sp: moved = -1
-        IF InHeld(A_RIGHT) THEN
-            Ply.MovingRight = -1
-            IF Ply.X < 80 THEN Ply.X = Ply.X + sp: moved = -1
-        END IF
-        IF moved THEN Ply.Energy = Ply.Energy - .03 * dt
+    IF InHeld(A_UP) AND Ply.Y > UpperLimit% THEN Ply.Y = Ply.Y - sp
+    IF InHeld(A_DOWN) AND Ply.Y < LowerLimit% THEN Ply.Y = Ply.Y + sp
+    IF InHeld(A_LEFT) AND Ply.X > LeftLimit% THEN Ply.X = Ply.X - sp
+    IF InHeld(A_RIGHT) THEN
+        Ply.MovingRight = -1
+        IF Ply.X < 80 THEN Ply.X = Ply.X + sp
     END IF
     IF Ply.Y < UpperLimit% THEN Ply.Y = UpperLimit%
     IF Ply.Y > LowerLimit% THEN Ply.Y = LowerLimit%
@@ -198,8 +195,11 @@ SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
     Ply.PrevX = INT(Ply.X)
     Ply.PrevY = INT(Ply.Y)
 
-    'Passive engine drain
-    Ply.Energy = Ply.Energy - .0001 * dt
+    'Energy regenerates once the guns have been quiet for a second
+    IF Game.T - Ply.LastShot > 1 AND Ply.Energy < 100 THEN
+        Ply.Energy = Ply.Energy + EnergyRegen! * dt
+        IF Ply.Energy > 100 THEN Ply.Energy = 100
+    END IF
 
     IF InHeld(A_FIRE) THEN TryFire
     IF firstTick THEN
@@ -226,13 +226,25 @@ SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
     END IF
 
     IF Game.God AND Ply.Energy < 20 THEN Ply.Energy = 20
-
-    IF Ply.Energy <= 0 THEN
-        Ply.Energy = 0
-        KillPlayer "NO MORE ENERGY!"
-        PlaySfx SndOutOfEnergy
-    END IF
+    IF Ply.Energy < 0 THEN Ply.Energy = 0
 END SUB
+
+'Energy points regained per second while not firing
+FUNCTION EnergyRegen!
+    SELECT CASE Game.Difficulty
+        CASE DIFF_EASY: EnergyRegen! = 16
+        CASE DIFF_HARD: EnergyRegen! = 9
+        CASE ELSE: EnergyRegen! = 12
+    END SELECT
+END FUNCTION
+
+FUNCTION ShotCost!
+    DIM cost AS SINGLE
+    IF Ply.Size = 1 THEN cost = .5 ELSE cost = .8
+    IF Game.Difficulty = DIFF_EASY THEN cost = cost * .7
+    IF Game.Difficulty = DIFF_HARD THEN cost = cost * 1.2
+    ShotCost! = cost
+END FUNCTION
 
 SUB TopMessage (s AS STRING)
     Game.TopMsg = s
@@ -277,15 +289,20 @@ SUB TryFire
     IF Game.T < Ply.OverdriveEnd THEN cooldown = .08
     IF Game.T - Ply.LastShot < cooldown THEN EXIT SUB
     IF FreeBullet% = 0 THEN EXIT SUB
-    Ply.LastShot = Game.T
-    Ply.FiredThisTick = -1
-
     IF Game.T >= Ply.OverdriveEnd THEN
-        IF Ply.Size = 1 THEN cost = .5 ELSE cost = .8
-        IF Game.Difficulty = DIFF_EASY THEN cost = cost * .7
-        IF Game.Difficulty = DIFF_HARD THEN cost = cost * 1.2
+        cost = ShotCost!
+        'Out of energy: the guns stay quiet until it recharges
+        IF Ply.Energy < cost THEN
+            IF Ply.Energy < .05 AND Game.T - Ply.LastShot > .6 THEN
+                PlaySfx SndOutOfEnergy
+                Ply.LastShot = Game.T
+            END IF
+            EXIT SUB
+        END IF
         Ply.Energy = Ply.Energy - cost
     END IF
+    Ply.LastShot = Game.T
+    Ply.FiredThisTick = -1
     IF Ply.Size = 1 THEN PlaySfx SndLaser1 ELSE PlaySfx SndLaser2
 
     r = ShipR%

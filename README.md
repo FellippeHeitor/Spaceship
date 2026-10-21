@@ -32,7 +32,7 @@ Keep the `data/` and `Audio/` folders next to the executable.
 
 All of these can be changed under **Controls** on the title screen.
 
-- **Energy is everything.** Moving and firing drain your ship's single energy cell. If it runs dry, you're done. Fly over a green energy pickup to recharge.
+- **Watch your energy.** Every shot drains your ship's energy cell. It refills once you stop firing for a second, and if it runs dry your guns go quiet until it does. A green energy pickup refills it straight away.
 - **Your ship takes two hits.** The first hit shrinks it to a smaller, damaged ship. The next hit destroys it. A green **heart** repairs the ship; if it's already whole, the heart gives an extra life.
 - **Weapons (W pickup) go up to level 4:** single laser, twin lasers, twin plus diagonal shots, then an added piercing beam. Taking damage drops you one level.
 - **Specials:** Time **F**reeze, smart **B**omb, homing **M**issiles and **O**verdrive (fast fire at no energy cost). They appear as the campaign progresses, and the HUD shows how many of each you carry.

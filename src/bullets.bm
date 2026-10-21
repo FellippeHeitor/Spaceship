@@ -56,14 +56,19 @@ SUB UpdateBullets (dt AS SINGLE)
                         Bul(i).X = Bul(i).X + Bul(i).DX * dt
                         Bul(i).Y = Bul(i).Y + Bul(i).DY * dt
                     CASE BK_SPORE
-                        tx = Ply.X - 2 - Bul(i).X
-                        ty = (ShipRow! - Bul(i).Y) * 2
-                        l = SQR(tx * tx + ty * ty)
-                        IF l < .001 THEN l = 1
-                        s = 11
-                        k = 1.5 * dt
-                        Bul(i).DX = Bul(i).DX + (tx / l * s - Bul(i).DX) * k
-                        Bul(i).DY = Bul(i).DY + (ty / l * s / 2 - Bul(i).DY) * k
+                        'Spores home in only while they are still in front of the ship,
+                        'and never turn back once they've passed it
+                        IF Bul(i).X > Ply.X + 1 THEN
+                            tx = Ply.X - 2 - Bul(i).X
+                            ty = (ShipRow! - Bul(i).Y) * 2
+                            l = SQR(tx * tx + ty * ty)
+                            IF l < .001 THEN l = 1
+                            s = 9
+                            k = .9 * dt
+                            Bul(i).DX = Bul(i).DX + (tx / l * s - Bul(i).DX) * k
+                            Bul(i).DY = Bul(i).DY + (ty / l * s / 2 - Bul(i).DY) * k
+                        END IF
+                        IF Bul(i).DX > -5 THEN Bul(i).DX = -5
                         Bul(i).X = Bul(i).X + Bul(i).DX * dt
                         Bul(i).Y = Bul(i).Y + Bul(i).DY * dt
                     CASE BK_ZAP
@@ -100,6 +105,7 @@ END FUNCTION
 FUNCTION EnemyShot% (kind AS INTEGER, x AS SINGLE, y AS SINGLE, dx AS SINGLE, dy AS SINGLE, src AS INTEGER, clr AS INTEGER)
     DIM b AS INTEGER
     EnemyShot% = 0
+    IF kind = BK_SPORE AND x < Ply.X + 2 THEN EXIT FUNCTION
     b = FreeBullet%
     IF b = 0 THEN EXIT FUNCTION
     Bul(b).Active = -1
@@ -128,7 +134,12 @@ SUB AimedShot (x AS SINGLE, y AS SINGLE, speed AS SINGLE, angleOfs AS SINGLE, sr
     DIM tx AS SINGLE, ty AS SINGLE, a AS SINGLE, dummy AS INTEGER
     tx = Ply.X - 2 - x
     ty = (ShipRow! - y) * 2
+    'Aimed fire only goes forward (leftward): no shots at a ship that is behind the shooter
+    IF tx > -2 THEN EXIT SUB
     a = _ATAN2(ty, tx) + angleOfs
+    'Keep the angle within 60 degrees of straight left
+    IF a > 0 AND a < 2.094 THEN a = 2.094
+    IF a < 0 AND a > -2.094 THEN a = -2.094
     dummy = EnemyShot%(BK_SHOT, x, y, COS(a) * speed, SIN(a) * speed / 2, src, clr)
 END SUB
 

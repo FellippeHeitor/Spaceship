@@ -201,7 +201,13 @@ SUB DrawHUD
     'Center of the top bar: status messages
     IF Ply.Energy <= 10 AND Ply.Alive AND NOT Ply.Recharge AND NOT Ply.Dying THEN
         IF Game.T - warnT > 1 THEN warnT = Game.T: warnToggle = NOT warnToggle
-        IF warnToggle THEN s = " LOW RESOURCES " ELSE s = "    DANGER!    "
+        IF Ply.Energy < ShotCost! THEN
+            s = " GUNS RECHARGING "
+        ELSEIF warnToggle THEN
+            s = "   LOW ENERGY    "
+        ELSE
+            s = "  EASE OFF FIRE  "
+        END IF
         Banner 1, s, 15, 4
     END IF
     IF Game.T - Ply.ShieldT < 1 AND Ply.Shield THEN Banner 1, " SHIELD ENGAGED ", 0, 7

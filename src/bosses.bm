@@ -88,13 +88,13 @@ SUB BossInit (i AS INTEGER)
             En(i).Y = 9
             En(i).Param = 54
         CASE AI_LEVIATHAN
-            'Head plus 12 segments that replay its path
+            'Head plus 10 segments that replay its path
             FOR k = 0 TO PATH_LEN - 1
                 PathX(k) = 120
                 PathY(k) = 13
             NEXT
             PathHead = 0
-            FOR k = 1 TO 12
+            FOR k = 1 TO 10
                 n = SpawnPart%("LEV_SEG", i, MV_FOLLOW, 0, 0, k * 6)
                 IF n THEN En(n).X = 130: En(n).Y = 12
             NEXT
@@ -234,20 +234,33 @@ SUB BossUpdate (i AS INTEGER, dt AS SINGLE)
                 END IF
             END IF
         CASE AI_LEVIATHAN
-            t = Game.ET - En(i).Born
+            'Surviving segments close ranks so the body stays compact
+            n = 0
+            FOR k = 1 TO MAX_EN
+                IF En(k).Active AND En(k).Parent = i THEN
+                    IF En(k).Move = MV_FOLLOW THEN
+                        n = n + 1
+                        t = n * 6
+                        IF En(k).Param > t THEN En(k).Param = En(k).Param - 20 * dt
+                        IF En(k).Param < t THEN En(k).Param = t
+                    END IF
+                END IF
+            NEXT
+            'The head opens up once only a few segments are left
+            IF En(i).Invuln AND n <= 3 THEN
+                En(i).Invuln = 0
+                SetFlash 80, 0, 80, .15
+                ShowMessage "THE HEAD IS EXPOSED!", 5, 1.5
+            END IF
             IF En(i).Invuln THEN
                 En(i).OffX = En(i).OffX + dt
-                IF CountChildren%(i, 2) = 0 THEN
-                    En(i).Invuln = 0
-                    SetFlash 80, 0, 80, .15
-                    ShowMessage "THE HEAD IS EXPOSED!", 5, 1.5
-                END IF
             ELSE
-                En(i).OffX = En(i).OffX + dt * 1.5
+                En(i).OffX = En(i).OffX + dt * 1.3
             END IF
+            'Stays on the right side of the screen, out of the player's lane
             t = En(i).OffX
-            cx = 48 + 24 * SIN(t * .55)
-            cy = 13 + 8 * SIN(t * 1.1 + .5)
+            cx = 56 + 14 * SIN(t * .5)
+            cy = 13 + 8 * SIN(t * 1 + .5)
             k = 45 - (Game.ET - En(i).Born) * 15
             IF k > 0 THEN cx = cx + k
             PathHead = (PathHead + 1) MOD PATH_LEN
@@ -258,18 +271,18 @@ SUB BossUpdate (i AS INTEGER, dt AS SINGLE)
             IF En(i).X < 60 AND En(i).State = 0 THEN En(i).State = 1
             IF En(i).State = 1 THEN
                 IF En(i).Invuln THEN
-                    IF Game.ET - En(i).OffY > 3 THEN
+                    IF Game.ET - En(i).OffY > 3.5 THEN
                         En(i).OffY = Game.ET
-                        dummy = EnemyShot%(BK_SPORE, En(i).X, En(i).Y + 2, -6, 0, i, 10)
+                        dummy = EnemyShot%(BK_SPORE, En(i).X, En(i).Y + 2, -7, 0, i, 10)
                     END IF
                 ELSE
-                    IF Game.ET - En(i).OffY > 2.2 THEN
+                    IF Game.ET - En(i).OffY > 2.6 THEN
                         En(i).OffY = Game.ET
-                        RingShot En(i).X + 3, En(i).Y + 2, 8, 13, RND, i, 13
+                        RingShot En(i).X + 3, En(i).Y + 2, 8, 12, RND, i, 13
                     END IF
-                    IF Game.ET - En(i).StateT > 1.1 THEN
+                    IF Game.ET - En(i).StateT > 1.4 THEN
                         En(i).StateT = Game.ET
-                        AimedShot En(i).X, En(i).Y + 2, 20, 0, i, 13
+                        AimedShot En(i).X, En(i).Y + 2, 18, 0, i, 13
                     END IF
                 END IF
             END IF

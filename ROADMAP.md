@@ -25,6 +25,7 @@ Milestones M0–M7 are implemented. The full campaign plays from start to finish
 - **Shield:** it still activates as soon as you pick it up; it isn't carried as a special.
 - **Dreadnought:** its four turrets sit on the front half, and the hull has an open bay so lasers can reach the core.
 - **Bonus stage:** the "Supply Run" plays after each of sectors 1–4.
+- **Energy:** replaced the original rule, where moving and firing drained energy and running dry killed you. Now only shots cost energy, it regenerates about 12 per second after a second without firing (16 on Easy, 9 on Hard), and an empty cell just silences the guns.
 
 **Not done yet (ideas for later):**
 - the half-row collision map (§3.8)
