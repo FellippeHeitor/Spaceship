@@ -1,0 +1,180 @@
+'Spaceship (QBJS build) - helpers that stand in for QB64-only features.
+'qbjs/build.js renames the QB64 calls to these (see RULES there); the JavaScript
+'side lives in qbjs/platform.js (the SSWeb object).
+
+'Called at startup, before the settings are read
+SUB QJ_Init
+    $IF JAVASCRIPT THEN
+        await SSWeb.init();
+    $END IF
+END SUB
+
+'Milliseconds since the page loaded
+FUNCTION QJ_Ticks#
+    DIM t AS DOUBLE
+    $IF JAVASCRIPT THEN
+        t = performance.now();
+    $END IF
+    QJ_Ticks# = t
+END FUNCTION
+
+'"Quit" in the browser: a goodbye screen, then back to the title
+SUB QJ_Quit
+    DIM k AS LONG
+    DO
+        StopMusic
+        COLOR 7, 0
+        CLS , 0
+        DrawLogo 100, 16
+        COLOR 15
+        CenterText 13, "THANKS FOR PLAYING"
+        COLOR 7
+        CenterText 16, "YOU CAN CLOSE THIS TAB NOW"
+        CenterText 17, "OR PRESS ANY KEY TO PLAY AGAIN"
+        _DISPLAY
+        _LIMIT 30
+        DO
+            k = _KEYHIT
+        LOOP WHILE k < 0
+        IF k > 0 THEN
+            GoTitle
+            DO
+                RunFrame
+                IF Game.State = ST_QUIT THEN EXIT DO
+                _DISPLAY
+                _LIMIT 60
+            LOOP
+            SaveConfig
+        END IF
+    LOOP
+END SUB
+
+SUB QJ_EraseScreenMap
+    $IF JAVASCRIPT THEN
+        QB.resizeArray(ScreenMap, [{l: 1, u: 80}, {l: 1, u: 25}], 0, false);
+    $END IF
+END SUB
+
+SUB QJ_SaveImage (f AS STRING)
+    'Screenshots are a QB64 autotest feature
+END SUB
+
+'--- Sound (Web Audio, see platform.js) ---------------------------------------
+
+FUNCTION QJ_SndOpen& (f AS STRING)
+    DIM h AS LONG
+    $IF JAVASCRIPT THEN
+        h = SSWeb.sndOpen(f);
+    $END IF
+    QJ_SndOpen& = h
+END FUNCTION
+
+SUB QJ_SndPlayCopy (h AS LONG, v AS SINGLE)
+    $IF JAVASCRIPT THEN
+        SSWeb.sndPlayCopy(h, v);
+    $END IF
+END SUB
+
+SUB QJ_SndLoop (h AS LONG)
+    $IF JAVASCRIPT THEN
+        SSWeb.sndLoop(h);
+    $END IF
+END SUB
+
+SUB QJ_SndPause (h AS LONG)
+    $IF JAVASCRIPT THEN
+        SSWeb.sndPause(h);
+    $END IF
+END SUB
+
+SUB QJ_SndStop (h AS LONG)
+    $IF JAVASCRIPT THEN
+        SSWeb.sndStop(h);
+    $END IF
+END SUB
+
+SUB QJ_SndVol (h AS LONG, v AS SINGLE)
+    $IF JAVASCRIPT THEN
+        SSWeb.sndVol(h, v);
+    $END IF
+END SUB
+
+FUNCTION QJ_SndPlaying% (h AS LONG)
+    DIM r AS INTEGER
+    $IF JAVASCRIPT THEN
+        r = SSWeb.sndPlaying(h) ? -1 : 0;
+    $END IF
+    QJ_SndPlaying% = r
+END FUNCTION
+
+FUNCTION QJ_SndPaused% (h AS LONG)
+    DIM r AS INTEGER
+    $IF JAVASCRIPT THEN
+        r = SSWeb.sndPaused(h) ? -1 : 0;
+    $END IF
+    QJ_SndPaused% = r
+END FUNCTION
+
+'--- Gamepad (browser Gamepad API, see platform.js) ----------------------------
+'Device 3 is always "the gamepad": whichever controller the browser reports first.
+
+FUNCTION QJ_Devices%
+    QJ_Devices% = 3
+END FUNCTION
+
+FUNCTION QJ_Device$ (d AS INTEGER)
+    DIM s AS STRING
+    $IF JAVASCRIPT THEN
+        s = SSWeb.padDeviceName(d);
+    $END IF
+    QJ_Device$ = s
+END FUNCTION
+
+'Reads the gamepad once; returns 0 so DO WHILE _DEVICEINPUT(d): LOOP ends at once
+FUNCTION QJ_DeviceInput% (d AS INTEGER)
+    $IF JAVASCRIPT THEN
+        SSWeb.padPoll();
+    $END IF
+    QJ_DeviceInput% = 0
+END FUNCTION
+
+FUNCTION QJ_LastButton% (d AS INTEGER)
+    DIM n AS INTEGER
+    $IF JAVASCRIPT THEN
+        n = SSWeb.padButtonCount();
+    $END IF
+    QJ_LastButton% = n
+END FUNCTION
+
+FUNCTION QJ_Button% (b AS INTEGER)
+    DIM r AS INTEGER
+    $IF JAVASCRIPT THEN
+        r = SSWeb.padButton(b) ? -1 : 0;
+    $END IF
+    QJ_Button% = r
+END FUNCTION
+
+FUNCTION QJ_LastAxis% (d AS INTEGER)
+    QJ_LastAxis% = 2
+END FUNCTION
+
+FUNCTION QJ_Axis! (a AS INTEGER)
+    DIM v AS SINGLE
+    $IF JAVASCRIPT THEN
+        v = SSWeb.padAxis(a);
+    $END IF
+    QJ_Axis! = v
+END FUNCTION
+
+'MID$(s, st, n) = v as a function (see the MID$ rule in build.js)
+FUNCTION QJ_MidSet$ (s AS STRING, st AS LONG, n AS LONG, v AS STRING)
+    DIM l AS LONG
+    l = n
+    IF l < 0 OR l > LEN(v) THEN l = LEN(v)
+    IF st + l - 1 > LEN(s) THEN l = LEN(s) - st + 1
+    IF l <= 0 OR st < 1 THEN
+        QJ_MidSet$ = s
+    ELSE
+        QJ_MidSet$ = LEFT$(s, st - 1) + LEFT$(v, l) + MID$(s, st + l)
+    END IF
+END FUNCTION

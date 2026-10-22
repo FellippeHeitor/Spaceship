@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spaceship</title>
+    <link rel="stylesheet" href="qbjs.css">
+    <style>
+        html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+        #gx-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        #gx-canvas { image-rendering: pixelated; border: 0; }
+        #start {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 18px;
+            background: #000; color: #aaa; cursor: pointer; user-select: none;
+            font-family: dosvga, monospace; font-size: 16px; text-align: center;
+        }
+        #start h1 { color: #e9c85e; font-size: 48px; font-weight: normal; letter-spacing: 6px; margin: 0; }
+        #start .play { color: #fff; border: 2px solid #555; padding: 10px 26px; background: #111; }
+        #start:hover .play { background: #333; }
+        #start .keys { color: #777; line-height: 1.6; }
+        #gx-footer { position: fixed; right: 8px; bottom: 8px; width: auto; background: transparent; opacity: .5; }
+        #gx-footer:hover { opacity: 1; }
+        #powered { color: #777; font-family: dosvga, monospace; font-size: 14px; text-decoration: none; align-self: center; margin-right: 6px; }
+    </style>
+    <script src="pako.2.1.0.min.js"></script>
+</head>
+<body>
+    <div id="gx-container"></div>
+    <div id="start" role="button" tabindex="0" onclick="startProgram()" onkeydown="if (event.key == 'Enter' || event.key == ' ') startProgram()">
+        <h1>SPACESHIP</h1>
+        <div class="play">CLICK TO PLAY</div>
+        <div class="keys">ARROWS / WASD: MOVE &nbsp; Z / SPACE: FIRE &nbsp; X / SHIFT: SPECIAL<br>
+            C / TAB: SWITCH SPECIAL &nbsp; ENTER / P / ESC: PAUSE &nbsp; M: MUTE</div>
+    </div>
+    <div id="gx-footer" style="display:none">
+        <a id="powered" href="https://github.com/boxgaming/qbjs" target="_blank" title="Powered by QBJS">QBJS</a>
+        <div id="gx-fullscreen" onclick="GX.fullScreen(true)" title="Full screen"></div>
+    </div>
+    <span style="color:transparent">&nbsp;</span><span style="color:transparent; font-family:dosvga8">&nbsp;</span>
+
+    <script src="vfs.js"></script>
+    <script src="gx/gx.js"></script>
+    <script src="qb.js"></script>
+    <script src="platform.js"></script>
+    <script src="program.js"></script>
+    <script>
+        var started = false;
+
+        async function startProgram() {
+            if (started) return;
+            started = true;
+            SSWeb.unlockAudio();   // browsers only allow sound after a click or key press
+            document.getElementById("start").remove();
+            try { await document.fonts.load("16px dosvga"); } catch (e) { }
+            var footer = document.getElementById("gx-footer");
+            footer.style.display = "flex";
+            waitForCanvas();
+            await __qbjs_run();
+        }
+
+        // Scale the 640x400 screen to fit the window, keeping its shape
+        function resizeScreen() {
+            var cv = GX.canvas();
+            if (!cv) return;
+            var s = Math.min(window.innerWidth / cv.width, window.innerHeight / cv.height);
+            if (s > 1) s = Math.max(1, Math.floor(s * 4) / 4);
+            cv.style.width = Math.floor(cv.width * s) + "px";
+            cv.style.height = Math.floor(cv.height * s) + "px";
+        }
+
+        function waitForCanvas() {
+            if (GX.canvas()) resizeScreen(); else requestAnimationFrame(waitForCanvas);
+        }
+
+        window.addEventListener("resize", resizeScreen);
+        document.getElementById("start").focus();
+    </script>
+</body>
+</html>

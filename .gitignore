@@ -1,5 +1,7 @@
 # Build output
 Spaceship
+qbjs/dist/
+qbjs/packages/
 Spaceship.exe
 *_start.command
 

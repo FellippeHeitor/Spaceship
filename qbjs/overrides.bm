@@ -1,0 +1,19 @@
+'Spaceship (QBJS build) - routines that replace the QB64 version of the same name.
+'qbjs/build.js swaps each one in for the routine with the same name in src/*.bm.
+'Keep this list short: everything else is shared with the QB64 build as it is.
+
+'There is no log file in the browser: log lines go to the browser console
+SUB LogMsg (s AS STRING)
+    STATIC count AS LONG
+    count = count + 1
+    IF count > 5000 THEN EXIT SUB
+    $IF JAVASCRIPT THEN
+        SSWeb.log(Game.T, s);
+    $END IF
+END SUB
+
+'Sounds load in the background (the QB64 version checks the file exists first,
+'which in the browser would download every file twice)
+FUNCTION LoadSnd& (f AS STRING)
+    LoadSnd& = QJ_SndOpen&(BasePath + "Audio" + Sep + f)
+END FUNCTION

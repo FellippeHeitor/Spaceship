@@ -19,6 +19,17 @@ qb64pe -x Spaceship.bas -o Spaceship
 
 Keep the `data/` and `Audio/` folders next to the executable.
 
+### Web version
+
+The same code also builds for the browser with [QBJS](https://github.com/boxgaming/qbjs):
+
+```
+node qbjs/build.js
+python3 -m http.server 8000 -d qbjs/dist
+```
+
+Then open http://localhost:8000. The build also packages the game in `qbjs/packages/`: a project zip for the QBJS IDE (qbjs.org) and a zip of the standalone site. See [qbjs/README.md](qbjs/README.md) for details.
+
 ## How to play
 
 | Action | Keyboard (default) | Gamepad (default) |
@@ -59,6 +70,7 @@ data/levels/*.lvl    one script per chapter
 data/zen.txt         the zen mode map: areas and their scenery
 Audio/               music and sound effects
 tools/               make_zen_music.py writes Audio/zen.mid
+qbjs/                the web (QBJS) build: build script, browser layer, page
 ROADMAP.md           the improvement plan and its status
 ```
 
