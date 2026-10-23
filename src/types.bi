@@ -469,6 +469,8 @@ TYPE PlayerType
     ExitX0 AS SINGLE
     ExitY0 AS SINGLE
     ExitDur AS SINGLE
+    ExitVX AS SINGLE 'velocity while gathering leftover pickups after the goal
+    ExitVY AS SINGLE
 END TYPE
 
 TYPE GameType

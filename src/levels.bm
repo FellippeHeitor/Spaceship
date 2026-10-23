@@ -477,12 +477,17 @@ SUB UpdateLevel (dt AS SINGLE)
         END SELECT
         IF done THEN GoalReached
     ELSE
-        'Exit sequence: give enemies a moment to flee, then line up and blast off
-        IF Ply.ExitPhase = 1 AND Game.T - Lvl.Countdown > 1.8 AND NOT Ply.Recharge THEN
-            Ply.ExitPhase = 2
-            Ply.ExitT = Game.T
-            Ply.ExitX0 = Ply.X
-            Ply.ExitY0 = Ply.Y
+        'Exit sequence: grab any pickups still on screen, give enemies a moment to flee,
+        'then line up and blast off
+        IF Ply.ExitPhase = 1 AND NOT Ply.Recharge THEN
+            IF ExitPickupTarget% > 0 THEN
+                Ply.ExitPhase = 4
+                Ply.ExitT = Game.T
+                Ply.ExitVX = 0
+                Ply.ExitVY = 0
+            ELSEIF Game.T - Lvl.Countdown > 1.8 THEN
+                StartExitSwing
+            END IF
         END IF
         IF Ply.ExitPhase = 3 AND Ply.X > 100 THEN
             Ply.ExitPhase = 0
