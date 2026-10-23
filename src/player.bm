@@ -447,6 +447,7 @@ END SUB
 
 SUB TopMessage (s AS STRING)
     Game.TopMsg = s
+    Game.TopMsgT = Game.T
     Game.TopMsgUntil = Game.T + 1
 END SUB
 

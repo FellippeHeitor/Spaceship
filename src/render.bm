@@ -118,6 +118,72 @@ SUB Banner (y AS INTEGER, s AS STRING, fg AS INTEGER, bg AS INTEGER)
     COLOR , 0
 END SUB
 
+'A top-bar banner that runs in from the right, pauses at the center, then runs off
+'to the left. It's on screen from t0 for dur seconds.
+SUB SlideBanner (s AS STRING, fg AS INTEGER, bg AS INTEGER, t0 AS DOUBLE, dur AS SINGLE)
+    DIM slide AS SINGLE, age AS SINGLE
+    slide = dur * .2
+    IF slide > .3 THEN slide = .3
+    age = Game.T - t0
+    IF age > dur - slide THEN
+        SlideBannerAt s, fg, bg, age, age - (dur - slide), slide
+    ELSE
+        SlideBannerAt s, fg, bg, age, -1, slide
+    END IF
+END SUB
+
+'Draws a sliding top-bar banner: inAge is how long since it appeared, outAge how long
+'since it started leaving (negative while it isn't), and each slide takes this long.
+SUB SlideBannerAt (s AS STRING, fg AS INTEGER, bg AS INTEGER, inAge AS SINGLE, outAge AS SINGLE, slide AS SINGLE)
+    DIM mid AS INTEGER, x AS SINGLE, p AS SINGLE, speed AS SINGLE
+    DIM n AS INTEGER, k AS INTEGER, cx AS INTEGER, c AS INTEGER, fr AS SINGLE, ch AS STRING
+    mid = 41 - LEN(s) \ 2
+    x = mid
+    IF outAge >= 0 THEN
+        'Leave: ease out of the center, speeding off the left edge
+        p = Clamp!(outAge / slide, 0, 1)
+        x = mid + (1 - LEN(s) - mid) * p * p
+        IF p < 1 THEN speed = 2 * (mid - (1 - LEN(s))) * p / slide
+    ELSEIF inAge < slide THEN
+        'Arrive: fast at first, easing into the center
+        p = 1 - Clamp!(inAge / slide, 0, 1)
+        x = mid + (81 - mid) * p * p
+        speed = 2 * (81 - mid) * p / slide
+    END IF
+    COLOR fg, bg
+    PutText INT(x + .5), 1, s
+
+    'Trail streaming off its right end while it moves, like the ship's jets:
+    'white hot, then yellow, red, and flickering embers; longer the faster it goes
+    n = INT(speed * .04)
+    IF n > 16 THEN n = 16
+    IF n >= 2 THEN
+        n = n + INT(RND * 3) - 1
+        FOR k = 0 TO n - 1
+            cx = INT(x + .5) + LEN(s) + k
+            IF cx > 80 THEN EXIT FOR
+            IF cx >= 1 THEN
+                fr = k / n
+                ch = CHR$(254)
+                SELECT CASE fr
+                    CASE IS < .15: c = 15
+                    CASE IS < .35: c = 14
+                    CASE IS < .6: c = 12
+                    CASE IS < .8: c = 4
+                    CASE ELSE
+                        c = 8
+                        ch = CHR$(250)
+                END SELECT
+                IF c <> 8 OR RND < .5 THEN
+                    COLOR c, 1
+                    PutText cx, 1, ch
+                END IF
+            END IF
+        NEXT
+    END IF
+    COLOR , 0
+END SUB
+
 SUB RenderPlay
     CLS , 0
     COLOR , 0
@@ -144,6 +210,7 @@ SUB DrawHUD
     DIM e AS STRING, i AS INTEGER, energyClr AS INTEGER, s AS STRING, x AS INTEGER
     DIM fr AS SINGLE, w AS INTEGER, ob AS INTEGER
     STATIC warnToggle AS _BYTE, warnT AS DOUBLE, blink AS _BYTE
+    STATIC warnOn AS _BYTE, warnOnT AS DOUBLE, warnOffT AS DOUBLE, warnS AS STRING
 
     COLOR 15, 1
     PutText 1, 1, SPACE$(80)
@@ -210,21 +277,26 @@ SUB DrawHUD
         PutText 80 - ob, 1, STRING$(ob, 254)
     END IF
 
-    'Center of the top bar: status messages
+    'Center of the top bar: the low-energy warning slides in when energy runs low,
+    'stays while it is, and slides out when it recovers
     IF Ply.Energy <= 10 AND Ply.Alive AND NOT Ply.Recharge AND NOT Ply.Dying THEN
+        IF NOT warnOn THEN warnOn = -1: warnOnT = Game.T
         IF Game.T - warnT > 1 THEN warnT = Game.T: warnToggle = NOT warnToggle
         IF Ply.Energy < ShotCost! THEN
-            s = " GUNS RECHARGING "
+            warnS = " GUNS RECHARGING "
         ELSEIF warnToggle THEN
-            s = "   LOW ENERGY    "
+            warnS = "   LOW ENERGY    "
         ELSE
-            s = "  EASE OFF FIRE  "
+            warnS = "  EASE OFF FIRE  "
         END IF
-        Banner 1, s, 15, 4
+        SlideBannerAt warnS, 15, 4, Game.T - warnOnT, -1, .3
+    ELSE
+        IF warnOn THEN warnOn = 0: warnOffT = Game.T
+        IF Game.T - warnOffT < .3 AND LEN(warnS) > 0 THEN SlideBannerAt warnS, 15, 4, 99, Game.T - warnOffT, .3
     END IF
-    IF Game.T - Ply.ShieldT < 1 AND Ply.Shield THEN Banner 1, " SHIELD ENGAGED ", 0, 7
+    IF Game.T - Ply.ShieldT < 1 AND Ply.Shield THEN SlideBanner " SHIELD ENGAGED ", 0, 7, Ply.ShieldT, 1
     'Top-bar messages (gun level, shield, overdrive...) go over the HUD
-    IF Game.T < Game.TopMsgUntil THEN Banner 1, RTRIM$(Game.TopMsg), 0, 7
+    IF Game.T < Game.TopMsgUntil THEN SlideBanner RTRIM$(Game.TopMsg), 0, 7, Game.TopMsgT, Game.TopMsgUntil - Game.TopMsgT
 
     'Bottom bar: chapter progress or boss health
     COLOR , 0

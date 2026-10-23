@@ -533,6 +533,7 @@ TYPE GameType
     EntryPos AS INTEGER
     TopMsg AS STRING * 32
     TopMsgUntil AS DOUBLE
+    TopMsgT AS DOUBLE 'when the top-bar message appeared (it slides in from there)
     Demo AS _BYTE 'attract mode: the autopilot plays while the title screen is idle
     DemoEnd AS DOUBLE
     DemoAbort AS _BYTE
