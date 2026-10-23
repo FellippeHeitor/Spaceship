@@ -135,6 +135,11 @@ END SUB
 'Draws a sliding top-bar banner: inAge is how long since it appeared, outAge how long
 'since it started leaving (negative while it isn't), and each slide takes this long.
 SUB SlideBannerAt (s AS STRING, fg AS INTEGER, bg AS INTEGER, inAge AS SINGLE, outAge AS SINGLE, slide AS SINGLE)
+    SlideTextAt 1, s, fg, bg, 1, inAge, outAge, slide
+END SUB
+
+'Text sliding along screen row y (see SlideBannerAt); trailBg is the color behind the trail
+SUB SlideTextAt (y AS INTEGER, s AS STRING, fg AS INTEGER, bg AS INTEGER, trailBg AS INTEGER, inAge AS SINGLE, outAge AS SINGLE, slide AS SINGLE)
     DIM mid AS INTEGER, x AS SINGLE, p AS SINGLE, speed AS SINGLE
     DIM n AS INTEGER, k AS INTEGER, cx AS INTEGER, c AS INTEGER, fr AS SINGLE, ch AS STRING
     mid = 41 - LEN(s) \ 2
@@ -151,7 +156,7 @@ SUB SlideBannerAt (s AS STRING, fg AS INTEGER, bg AS INTEGER, inAge AS SINGLE, o
         speed = 2 * (81 - mid) * p / slide
     END IF
     COLOR fg, bg
-    PutText INT(x + .5), 1, s
+    PutText INT(x + .5), y, s
 
     'Trail streaming off its right end while it moves, like the ship's jets:
     'white hot, then yellow, red, and flickering embers; longer the faster it goes
@@ -175,8 +180,8 @@ SUB SlideBannerAt (s AS STRING, fg AS INTEGER, bg AS INTEGER, inAge AS SINGLE, o
                         ch = CHR$(250)
                 END SELECT
                 IF c <> 8 OR RND < .5 THEN
-                    COLOR c, 1
-                    PutText cx, 1, ch
+                    COLOR c, trailBg
+                    PutText cx, y, ch
                 END IF
             END IF
         NEXT

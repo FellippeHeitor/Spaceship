@@ -628,9 +628,10 @@ SUB GameOverFrame
     DIM age AS DOUBLE, left10 AS INTEGER
     MenuBackground
     age = UINow# - Game.StateT
-    Banner 11, "               ", 15, 4
-    Banner 12, "   GAME OVER   ", 15, 4
-    Banner 13, "               ", 15, 4
+    'Slides in from the right like the top-bar banners
+    SlideTextAt 11, "               ", 15, 4, 0, age, -1, .4
+    SlideTextAt 12, "   GAME OVER   ", 15, 4, 0, age, -1, .4
+    SlideTextAt 13, "               ", 15, 4, 0, age, -1, .4
     COLOR 7
     CenterText 15, "SCORE " + PadNum$(Ply.Score, 7)
     IF age < 1.5 THEN EXIT SUB
