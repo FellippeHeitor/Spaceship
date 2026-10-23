@@ -342,7 +342,8 @@ FUNCTION ExitPickupTarget%
                 IF SpecialCount(SP_FREEZE) >= SpecialMax(SP_FREEZE) THEN sp = 0
             END IF
             IF sp THEN
-                ExitPickupSpot i, tx, ty
+                tx = ExitPickupX!(i)
+                ty = ExitPickupY!(i)
                 w = 7
                 IF Pk(i).Sprite THEN w = Sprites(Pk(i).Sprite).W
                 'On screen and not about to slip past the ship's reach at the left edge
@@ -355,16 +356,21 @@ FUNCTION ExitPickupTarget%
     NEXT
 END FUNCTION
 
-'Where the ship's nose should go to touch pickup i: its middle (X in cells, Y in half-rows)
-SUB ExitPickupSpot (i AS INTEGER, tx AS SINGLE, ty AS SINGLE)
-    DIM w AS INTEGER, h AS INTEGER
-    w = 7: h = 3
-    IF Pk(i).Sprite THEN w = Sprites(Pk(i).Sprite).W: h = Sprites(Pk(i).Sprite).H
-    tx = Pk(i).X + w / 2
-    ty = 2 * INT(Pk(i).Y) + h - 1
-    tx = Clamp!(tx, LeftLimit%, 80)
-    ty = Clamp!(ty, UpperLimit%, LowerLimit%)
-END SUB
+'Where the ship's nose should go to touch pickup i: its middle (X in cells, Y in half-rows).
+'Two functions rather than a SUB that fills in its parameters: QBJS passes those by value.
+FUNCTION ExitPickupX! (i AS INTEGER)
+    DIM w AS INTEGER
+    w = 7
+    IF Pk(i).Sprite THEN w = Sprites(Pk(i).Sprite).W
+    ExitPickupX! = Clamp!(Pk(i).X + w / 2, LeftLimit%, 80)
+END FUNCTION
+
+FUNCTION ExitPickupY! (i AS INTEGER)
+    DIM h AS INTEGER
+    h = 3
+    IF Pk(i).Sprite THEN h = Sprites(Pk(i).Sprite).H
+    ExitPickupY! = Clamp!(2 * INT(Pk(i).Y) + h - 1, UpperLimit%, LowerLimit%)
+END FUNCTION
 
 'Level cleared: the ship gathers leftover pickups, lines up at the middle of the
 'left edge, then blasts off to the right
@@ -381,7 +387,8 @@ SUB UpdateExitSequence (dt AS SINGLE)
             i = ExitPickupTarget%
             IF Game.T - Ply.ExitT > 8 THEN i = 0 'never chase forever
             IF i > 0 THEN
-                ExitPickupSpot i, tx, ty
+                tx = ExitPickupX!(i)
+                ty = ExitPickupY!(i)
                 dx = tx - Ply.X
                 dy = ty - Ply.Y
                 d = SQR(dx * dx + dy * dy)
