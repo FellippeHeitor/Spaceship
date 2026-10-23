@@ -266,10 +266,13 @@ SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
         IF Ply.Energy > 100 THEN Ply.Energy = 100
     END IF
 
-    IF InHeld(A_FIRE) THEN TryFire
-    IF firstTick THEN
-        IF InPressed(A_SPECIAL) THEN UseSpecial
-        IF InPressed(A_SELECT) THEN CycleSpecial
+    'Guns hold while a dead boss blows up, so the explosions ring out in the silence
+    IF NOT BossSilence% THEN
+        IF InHeld(A_FIRE) THEN TryFire
+        IF firstTick THEN
+            IF InPressed(A_SPECIAL) THEN UseSpecial
+            IF InPressed(A_SELECT) THEN CycleSpecial
+        END IF
     END IF
 
     'Timed power-ups

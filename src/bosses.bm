@@ -398,9 +398,17 @@ SUB CheckBossDefeated (i AS INTEGER)
         IF Bul(k).Owner = 2 THEN Bul(k).Active = 0
     NEXT
     PlaySfx SndBossDeath
+    'Silence while it blows up; UpdateBossDeath brings in calmer music after
+    StopMusic
+    CurrentSong = 0
     SetFlash 255, 255, 255, .25
     IF Test.Active THEN LogMsg "Boss defeated: " + RTRIM$(Defs(En(i).DefID).Nm)
 END SUB
+
+'True from a boss's death until the music comes back (calm track or the next boss)
+FUNCTION BossSilence%
+    BossSilence% = (Game.BossDeadT > 0 AND CurrentSong = 0 AND NOT BossActive%)
+END FUNCTION
 
 'Chain of explosions after a boss dies
 SUB UpdateBossDeath (dt AS SINGLE)
@@ -410,5 +418,8 @@ SUB UpdateBossDeath (dt AS SINGLE)
             AddExplosion Game.BossX + RND * Game.BossW, Game.BossY + RND * Game.BossH, 1
             IF RND < .4 THEN PlaySfx SndExplosion
         END IF
+    ELSEIF Game.T - Game.BossDeadT > 2.8 AND CurrentSong = 0 THEN
+        'Explosions are over: calm music, unless another boss is on its way
+        IF NOT BossActive% AND Lvl.BossPending = 0 AND LEN(_TRIM$(Lvl.BossQueue)) = 0 THEN PlaySong SONG_ZEN
     END IF
 END SUB
