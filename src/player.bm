@@ -277,6 +277,9 @@ SUB UpdatePlayer (dt AS SINGLE, firstTick AS _BYTE)
 
     'Timed power-ups
     IF Ply.Shield THEN
+        'Bonus stages bank the shield for the next level: its timer holds (past the
+        'one-second "engaged" banner) and starts counting down once the level begins
+        IF Lvl.Bonus AND Game.T - Ply.ShieldT > 1 THEN Ply.ShieldT = Game.T - 1
         IF Game.T - Ply.ShieldT > 30 THEN
             Ply.Shield = 0
             PlaySfx SndShieldOff
@@ -514,14 +517,20 @@ SUB TryFire
     IF Game.T >= Ply.OverdriveEnd THEN
         cost = ShotCost!
         'Out of energy: the guns stay quiet until it recharges
-        IF Ply.Energy < cost AND Ply.Over < cost THEN
+        IF Ply.Energy + Ply.Over < cost THEN
             IF Ply.Energy < .05 AND Game.T - Ply.LastShot > .6 THEN
                 PlaySfx SndOutOfEnergy
                 Ply.LastShot = Game.T
             END IF
             EXIT SUB
         END IF
-        IF Ply.Over >= cost THEN Ply.Over = Ply.Over - cost ELSE Ply.Energy = Ply.Energy - cost
+        'Overcharge goes first; a sliver left over is topped up from the cell
+        IF Ply.Over >= cost THEN
+            Ply.Over = Ply.Over - cost
+        ELSE
+            Ply.Energy = Ply.Energy - (cost - Ply.Over)
+            Ply.Over = 0
+        END IF
     END IF
     Ply.LastShot = Game.T
     Ply.FiredThisTick = -1
@@ -566,6 +575,8 @@ END SUB
 
 SUB UseSpecial
     DIM s AS INTEGER
+    'Specials picked up in a bonus stage are saved for the levels that follow
+    IF Lvl.Bonus THEN EXIT SUB
     IF Game.T - Ply.LastSpecialT < .3 THEN EXIT SUB
     s = Ply.CurSpecial
     IF s < 1 OR s > SP_COUNT THEN EXIT SUB
@@ -650,6 +661,12 @@ SUB HurtPlayer (kind AS INTEGER)
     IF Game.T - Ply.LastDamage < GRACE_TIME THEN EXIT SUB
     IF Ply.Shield THEN
         IF kind = 1 THEN EXIT SUB
+        'Bonus stages: the shield takes the hit but holds, as it's kept for the next level
+        IF Lvl.Bonus THEN
+            Ply.LastDamage = Game.T - GRACE_TIME + .5
+            PlaySfx SndShieldOn
+            EXIT SUB
+        END IF
         Ply.Shield = 0
         Ply.LastDamage = Game.T - GRACE_TIME + .5
         PlaySfx SndShieldOff
@@ -657,6 +674,9 @@ SUB HurtPlayer (kind AS INTEGER)
         EXIT SUB
     END IF
     IF Game.God THEN Ply.LastDamage = Game.T: EXIT SUB
+    'In a bonus stage a hit just ends the stage: the ship isn't damaged and
+    'arrives whole at the next level
+    IF Lvl.Bonus THEN KillPlayer "SUPPLY RUN OVER": EXIT SUB
     Lvl.Damage = Lvl.Damage + 1
     IF Ply.Size = 2 THEN
         Ply.LastDamage = Game.T
@@ -669,8 +689,7 @@ SUB HurtPlayer (kind AS INTEGER)
         ShowMessage "UNIT DAMAGED!", 4, 1.5
         AddExplosion Ply.X - 1, ShipRow!, 0
     ELSE
-        'A fatal hit in a bonus stage just ends the stage (no life lost)
-        IF Lvl.Bonus THEN KillPlayer "SUPPLY RUN OVER" ELSE KillPlayer "BUSTED!!"
+        KillPlayer "BUSTED!!"
     END IF
 END SUB
 
@@ -681,7 +700,7 @@ SUB KillPlayer (msg AS STRING)
     Ply.Alive = 0
     Ply.DeathT = Game.T
     Ply.DeathMsg = msg
-    Ply.Shield = 0
+    IF NOT Lvl.Bonus THEN Ply.Shield = 0
     Ply.Freeze = 0
     PlaySfx SndExplosion
     AddExplosion Ply.X - 1, ShipRow!, 2
