@@ -22,7 +22,7 @@
 '  AT t <command>               runs once when the chapter clock reaches t
 '  EVERY p [FROM a] [TO b] <command>   repeats
 'Commands: TIP WHO:TEXT|LINE2, MESSAGE text, WAVE DEF xN [LINE|COLUMN|V|RANDOM|SNAKE] [Y=n],
-'          SPAWN DEF [x|RIGHT] [y|RANDOM|TOP|BOTTOM|PLAYER|CENTER], PICKUP KIND [y],
+'          SPAWN DEF [x|RIGHT] [y|RANDOM|TOP|BOTTOM|PLAYER|CENTER], PICKUP KIND|RANDOM [y],
 '          BOSS DEF [DEF...], and POOL/TERRAIN/FOG/STORM/PICKUPS/STEP as above.
 
 SUB LoadCampaign (f AS STRING)
@@ -259,7 +259,7 @@ SUB ExecCommand (l AS STRING)
             d = DefIndex%(Word$(a, 1))
             IF d THEN SpawnAt d, Word$(a, 2), Word$(a, 3)
         CASE "PICKUP"
-            kind = PickupKindFromName%(Word$(a, 1))
+            IF UCASE$(Word$(a, 1)) = "RANDOM" THEN kind = UsefulPickupKind% ELSE kind = PickupKindFromName%(Word$(a, 1))
             IF LEN(Word$(a, 2)) THEN y = VAL(Word$(a, 2)) ELSE y = -1
             dummy = SpawnPickup%(kind, 80, y, -1)
         CASE "BOSS"

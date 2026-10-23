@@ -177,6 +177,7 @@ CONST MAX_ZEN_STARS = 70
 CONST MAX_ZEN_OBJS = 48
 CONST MAX_ZEN_SCENES = 80
 CONST MAX_ZEN_AREAS = 10
+CONST OVER_MAX = 50 'most overcharge the ship can hold (half a bar)
 CONST ZEN_CENTER = 25 'the ship's half-row while the view scrolls (screen center)
 CONST ZEN_VMAX = 24 'top vertical speed, half-rows per second
 CONST ZEN_V_INTENT = 3.5 'how quickly the smoothed up/down intent follows the keys (per second)
@@ -435,6 +436,7 @@ TYPE PlayerType
     DeathMsg AS STRING * 20
     Lives AS INTEGER
     Energy AS SINGLE
+    Over AS SINGLE 'overcharge: gun energy above full, from energy cells; spent before Energy
     Score AS LONG
     NextLife AS LONG
     Weapon AS INTEGER
@@ -630,6 +632,7 @@ TYPE TestType
     LogFile AS STRING * 200
     MaxChapter AS INTEGER
     StopAtChapter AS INTEGER
+    Windowed AS _BYTE '-window: skip fullscreen this run (saved setting untouched)
 END TYPE
 
 '---------------------------------------------------------------------------

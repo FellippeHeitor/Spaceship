@@ -2,6 +2,7 @@
 '
 '  -god              invincible ship, cheat keys (L finish chapter, F freeze, W weapon, B specials)
 '  -chapter N        start straight at chapter N
+'  -window           stay in a window this run, even if fullscreen is on in the options
 '  -parallax        the starfield slides up and down as the ship climbs and dives
 '  -difficulty N     1 easy, 2 normal, 3 hard (does not touch your saved settings)
 '  -autotest SECS    play by itself for SECS of game time, log to autotest.log, then quit
@@ -23,6 +24,7 @@ SUB ParseArgs
         a = LCASE$(COMMAND$(i))
         SELECT CASE a
             CASE "-god": Game.God = -1
+            CASE "-window": Test.Windowed = -1
             CASE "-parallax": Game.Parallax = -1
             CASE "-chapter": startCh = VAL(COMMAND$(i + 1)): i = i + 1
             CASE "-difficulty": diff = VAL(COMMAND$(i + 1)): i = i + 1

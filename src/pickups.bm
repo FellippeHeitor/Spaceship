@@ -78,6 +78,20 @@ FUNCTION SpawnPickup% (kind AS INTEGER, x AS SINGLE, y AS SINGLE, scripted AS _B
     NEXT
 END FUNCTION
 
+'A random power-up the player can use right now, from the kinds unlocked so far
+'(the same unlocks as RollPickup). Falls back to a life when nothing else is useful.
+FUNCTION UsefulPickupKind%
+    DIM k(1 TO 8) AS INTEGER, n AS INTEGER
+    k(1) = PK_LIFE: n = 1
+    IF Ply.Weapon < 4 THEN n = n + 1: k(n) = PK_WEAPON
+    IF NOT Ply.Shield THEN n = n + 1: k(n) = PK_SHIELD
+    IF SpecialCount(SP_FREEZE) < SpecialMax(SP_FREEZE) THEN n = n + 1: k(n) = PK_FREEZE
+    IF Game.ChapterIdx >= 5 AND SpecialCount(SP_BOMB) < SpecialMax(SP_BOMB) THEN n = n + 1: k(n) = PK_BOMB
+    IF Game.ChapterIdx >= 9 AND SpecialCount(SP_MISSILE) < SpecialMax(SP_MISSILE) THEN n = n + 1: k(n) = PK_MISSILE
+    IF Game.ChapterIdx >= 13 AND SpecialCount(SP_OVERDRIVE) < SpecialMax(SP_OVERDRIVE) THEN n = n + 1: k(n) = PK_OVERDRIVE
+    UsefulPickupKind% = k(RndInt%(1, n))
+END FUNCTION
+
 FUNCTION RandomPickupActive%
     DIM i AS INTEGER
     RandomPickupActive% = 0
@@ -214,7 +228,7 @@ SUB MapPickups
 END SUB
 
 SUB CollectPickup (i AS INTEGER)
-    DIM sp AS INTEGER
+    DIM sp AS INTEGER, add AS SINGLE, more AS SINGLE
     IF Pk(i).Active = 0 THEN EXIT SUB
     SELECT CASE Pk(i).Kind
         CASE PK_LIFE
@@ -273,11 +287,24 @@ SUB CollectPickup (i AS INTEGER)
             END IF
         CASE PK_CELL
             Pk(i).Active = 0
-            Ply.Energy = Ply.Energy + 10
-            Ply.LastEnergyUp = Game.T
             Lvl.Collected = Lvl.Collected + 1
             AddScore 50, Pk(i).X, Pk(i).Y
-            PlaySfx SndPickup
+            'Fills the gun energy first, then overcharges it past full
+            add = 100 - Ply.Energy
+            IF add > 10 THEN add = 10
+            IF add < 0 THEN add = 0
+            Ply.Energy = Ply.Energy + add
+            more = 10 - add
+            IF more > OVER_MAX - Ply.Over THEN more = OVER_MAX - Ply.Over
+            IF more < 0 THEN more = 0
+            Ply.Over = Ply.Over + more
+            IF add + more >= .5 THEN
+                Ply.LastEnergyUp = Game.T
+                PlaySfx SndEnergyUp
+                AddFloatText Pk(i).X, Pk(i).Y + 1, "+" + NumStr$(INT(add + more + .5)) + " EN", 11
+            ELSE
+                PlaySfx SndPickup
+            END IF
         CASE PK_STAR
             Pk(i).Active = 0
             Lvl.Collected = Lvl.Collected + 1

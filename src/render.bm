@@ -142,7 +142,7 @@ END SUB
 
 SUB DrawHUD
     DIM e AS STRING, i AS INTEGER, energyClr AS INTEGER, s AS STRING, x AS INTEGER
-    DIM fr AS SINGLE, w AS INTEGER
+    DIM fr AS SINGLE, w AS INTEGER, ob AS INTEGER
     STATIC warnToggle AS _BYTE, warnT AS DOUBLE, blink AS _BYTE
 
     COLOR 15, 1
@@ -159,16 +159,21 @@ SUB DrawHUD
         PutText 25, 1, "x" + NumStr$(ComboMult%) + " COMBO"
     END IF
 
+    'Overcharge blocks make the energy bar grow to the left, pushing the gun
+    'and specials over with it (one column per block)
+    ob = _CEIL(Ply.Over / 10)
+    IF ob > OVER_MAX \ 10 THEN ob = OVER_MAX \ 10
+
     'Weapon level
     COLOR 7
-    PutText 49, 1, "GUN"
+    PutText 49 - ob, 1, "GUN"
     FOR i = 1 TO 4
         IF i <= Ply.Weapon THEN COLOR 12 ELSE COLOR 8
-        PutText 52 + i, 1, CHR$(254)
+        PutText 52 - ob + i, 1, CHR$(254)
     NEXT
 
     'Specials: F(reeze) B(omb) M(issiles) O(verdrive)
-    x = 58
+    x = 58 - ob
     FOR i = 1 TO SP_COUNT
         s = LEFT$(SpecialName(i), 1) + NumStr$(SpecialCount(i))
         IF i = Ply.CurSpecial THEN
@@ -192,12 +197,18 @@ SUB DrawHUD
         CASE IS <= 60: energyClr = 14
         CASE ELSE: energyClr = 10
     END SELECT
-    IF Game.T - Ply.LastEnergyUp <= .2 THEN
+    IF Game.T - Ply.LastEnergyUp <= .5 THEN
         blink = NOT blink
         IF blink THEN energyClr = 9 ELSE energyClr = 10
     END IF
     COLOR energyClr, 1
-    PutText 70, 1, e
+    PutText 70 - ob, 1, e
+    'Overcharge from energy cells: bright cyan blocks past full, at the right end
+    'so they drain first
+    IF ob > 0 THEN
+        COLOR 11, 1
+        PutText 80 - ob, 1, STRING$(ob, 254)
+    END IF
 
     'Center of the top bar: status messages
     IF Ply.Energy <= 10 AND Ply.Alive AND NOT Ply.Recharge AND NOT Ply.Dying THEN

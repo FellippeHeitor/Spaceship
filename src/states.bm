@@ -351,6 +351,7 @@ SUB OptionsFrame
                 PlaySfx SndLaser1
             CASE 4
                 Game.Fullscreen = NOT Game.Fullscreen
+                Test.Windowed = 0
                 ApplyFullscreen
         END SELECT
     END IF
@@ -362,7 +363,7 @@ SUB OptionsFrame
 END SUB
 
 SUB ApplyFullscreen
-    IF Test.Active THEN EXIT SUB
+    IF Test.Active OR Test.Windowed THEN EXIT SUB
     IF Game.Fullscreen THEN
         _FULLSCREEN _SQUAREPIXELS , _SMOOTH
     ELSE

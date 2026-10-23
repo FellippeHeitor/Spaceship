@@ -166,6 +166,7 @@ SUB PlacePlayerForStart
     Ply.Freeze = 0
     Ply.OverdriveEnd = 0
     Ply.Energy = 0
+    Ply.Over = 0
     Ply.Recharge = -1
     Ply.SlideIn = -1
     Ply.RechargeT = Game.T
@@ -323,15 +324,18 @@ END SUB
 'Energy pickups are left alone (they never disappear), and so are specials that are
 'already full and wouldn't be taken.
 FUNCTION ExitPickupTarget%
-    DIM i AS INTEGER, w AS INTEGER, sp AS INTEGER
+    DIM i AS INTEGER, w AS INTEGER, sp AS _BYTE
     DIM tx AS SINGLE, ty AS SINGLE, d AS SINGLE, best AS SINGLE
     ExitPickupTarget% = 0
     best = 999999
     FOR i = 1 TO MAX_PK
         IF Pk(i).Active AND Pk(i).Kind <> PK_ENERGY THEN
-            sp = 0
-            IF Pk(i).Kind = PK_FREEZE THEN sp = SP_FREEZE
-            IF sp = 0 OR SpecialCount(sp) < SpecialMax(sp) THEN
+            'BASIC's OR doesn't short-circuit, so only look up SpecialCount for freeze
+            sp = -1
+            IF Pk(i).Kind = PK_FREEZE THEN
+                IF SpecialCount(SP_FREEZE) >= SpecialMax(SP_FREEZE) THEN sp = 0
+            END IF
+            IF sp THEN
                 ExitPickupSpot i, tx, ty
                 w = 7
                 IF Pk(i).Sprite THEN w = Sprites(Pk(i).Sprite).W
@@ -506,14 +510,14 @@ SUB TryFire
     IF Game.T >= Ply.OverdriveEnd THEN
         cost = ShotCost!
         'Out of energy: the guns stay quiet until it recharges
-        IF Ply.Energy < cost THEN
+        IF Ply.Energy < cost AND Ply.Over < cost THEN
             IF Ply.Energy < .05 AND Game.T - Ply.LastShot > .6 THEN
                 PlaySfx SndOutOfEnergy
                 Ply.LastShot = Game.T
             END IF
             EXIT SUB
         END IF
-        Ply.Energy = Ply.Energy - cost
+        IF Ply.Over >= cost THEN Ply.Over = Ply.Over - cost ELSE Ply.Energy = Ply.Energy - cost
     END IF
     Ply.LastShot = Game.T
     Ply.FiredThisTick = -1
@@ -656,6 +660,7 @@ SUB HurtPlayer (kind AS INTEGER)
         SetFlash 28, 28, 28, .15
         SetShipSize 1
         Ply.Energy = Ply.Energy / 2
+        Ply.Over = 0
         IF Ply.Weapon > 1 THEN Ply.Weapon = Ply.Weapon - 1: AnnounceWeapon "GUN DOWN "
         ShowMessage "UNIT DAMAGED!", 4, 1.5
         AddExplosion Ply.X - 1, ShipRow!, 0
@@ -875,7 +880,12 @@ SUB LightningStrike (idx AS INTEGER)
     IF En(idx).Param <> 0 THEN EXIT SUB
     En(idx).Param = 1
     IF Ply.Shield OR Game.God THEN EXIT SUB
-    Ply.Energy = Ply.Energy - 20
+    IF Ply.Over >= 20 THEN
+        Ply.Over = Ply.Over - 20
+    ELSE
+        Ply.Energy = Ply.Energy - (20 - Ply.Over)
+        Ply.Over = 0
+    END IF
     SetFlash 60, 60, 120, .1
     TopMessage " ION STRIKE! -20 "
     PlaySfx SndShipDamage
